@@ -38,7 +38,7 @@ try:
     st.markdown(f'<div class="time-box">📅 Đang xem: {thoi_gian_tuan}</div>', unsafe_allow_html=True)
 
     # 2. ĐỌC DỮ LIỆU BẢNG TRỰC
-    raw_df = conn.read(spreadsheet=url, ttl=0, worksheet="1567366671", skiprows=3)
+    raw_df = conn.read(spreadsheet=url, ttl=0, worksheet="1567366671", skiprows=4)
 
     # 3. ĐẶT TÊN CỘT (Cấu trúc 3 cột/ngày như đã sửa)
     columns = ["STT", "Ap", "HoTen", "ChucVu"]
@@ -70,3 +70,4 @@ try:
 
 except Exception as e:
     st.error(f"Lỗi: {e}")
+
