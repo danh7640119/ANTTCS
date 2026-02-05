@@ -27,7 +27,7 @@ st.title("📋 HỆ THỐNG TRA CỨU LỊCH TRỰC")
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     # Đọc dữ liệu từ dòng 5 (skiprows=3)
-    raw_df = conn.read(spreadsheet=url, ttl=0, worksheet="1567366671"skiprows=3)
+    raw_df = conn.read(spreadsheet=url, ttl=0, worksheet="1567366671", skiprows=3)
     
     # --- XỬ LÝ CỘT (Để tránh lỗi lấy tên nhưng không có dữ liệu) ---
     # File của bạn có: STT(0), Ấp(1), Họ tên(2), Chức vụ(3) và 28 cột trực (7 ngày x 4 ca)
@@ -94,6 +94,7 @@ try:
 except Exception as e:
     st.error(f"Lỗi kết nối dữ liệu: {e}")
     st.info("Mẹo: Hãy kiểm tra xem bạn đã chia sẻ Google Sheets ở chế độ 'Anyone with the link can view' chưa.")
+
 
 
 
