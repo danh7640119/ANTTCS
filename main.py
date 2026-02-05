@@ -28,7 +28,7 @@ try:
 
     # 2. ĐỌC DỮ LIỆU BẢNG (Dùng skiprows=4 để lấy dòng 5 làm tiêu đề)
     # Theo ảnh: Dòng 5 chứa "1", "Tân Lợi", "Hồ Thế Lập"...
-    raw_df = conn.read(spreadsheet=url, ttl=0, worksheet="1567366671", skiprows=4)
+    raw_df = conn.read(spreadsheet=url, ttl=0, worksheet="1567366671", skiprows=5)
 
     # 3. ĐỊNH NGHĨA CỘT (Khớp 100% với ảnh: Ngày | Đêm-CAX | Đêm-Ấp)
     # Tổng cộng mỗi ngày có 3 cột dữ liệu trực
@@ -87,3 +87,4 @@ try:
 
 except Exception as e:
     st.error(f"Lỗi: {e}")
+
