@@ -24,7 +24,7 @@ try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     
     # Đọc dữ liệu từ Sheet Lưu Trữ
-    df_raw = conn.read(spreadsheet=url, ttl=0, worksheet="LuuTru", skiprows=2)
+    df_raw = conn.read(spreadsheet=url, ttl=0, worksheet="1727254590", skiprows=2)
 
     # Định nghĩa cột
     cols = ["Tuan", "Ap", "HoTen"]
@@ -125,4 +125,5 @@ try:
 
 except Exception as e:
     st.error(f"Lỗi: {e}")
+
 
