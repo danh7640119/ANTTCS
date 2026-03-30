@@ -40,18 +40,18 @@ try:
     for col in df.columns[3:]:
         df[col] = df[col].astype(str).str.strip().str.lower()
 
-    # --- XỬ LÝ DANH SÁCH TUẦN (MỚI) ---
-    # 1. Lấy danh sách tuần duy nhất
+    # --- XỬ LÝ DANH SÁCH TUẦN (SẮP XẾP DESC) ---
+    # 1. Lấy danh sách tuần duy nhất theo thứ tự xuất hiện trong Sheets
     list_weeks_raw = df['Tuan'].unique().tolist()
     
-    # 2. Đảo ngược danh sách để tuần mới nhất (cuối file) lên đầu App
+    # 2. Đảo ngược danh sách (DESC): Tuần cuối cùng trong Sheets sẽ lên đầu danh sách App
     list_weeks = list_weeks_raw[::-1] 
 
-    # 3. Tự động nhận diện tuần dựa trên ngày hiện tại
+    # 3. Tự động xác định tuần hiện tại (dò theo ngày tháng dd/mm)
     now = datetime.now()
-    today_str = now.strftime("%d/%m") # Ví dụ: "10/02"
+    today_str = now.strftime("%d/%m")
     
-    default_week_idx = 0 # Mặc định chọn tuần đầu tiên trong danh sách đã đảo ngược
+    default_week_idx = 0 # Mặc định là tuần mới nhất (đầu danh sách sau khi đảo)
     for i, week_name in enumerate(list_weeks):
         if today_str in str(week_name):
             default_week_idx = i
@@ -83,7 +83,7 @@ try:
     # --- BỘ LỌC SIDEBAR ---
     st.sidebar.header("📅 THỜI GIAN TRỰC")
     
-    # Hiển thị tuần mới nhất lên đầu
+    # Selectbox hiển thị tuần với Tuần mới nhất nằm ở trên cùng
     selected_week = st.sidebar.selectbox("Chọn tuần:", list_weeks, index=default_week_idx)
     
     days_vn = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
@@ -109,6 +109,7 @@ try:
                 with grid[idx % 3]:
                     st.markdown(f"""<div class="duty-card"><div class="name-text">{row['HoTen']}</div><div class="info-text">🏠 Đơn vị: {row['Ap']}</div><div class="location-tag">📍 Tại Công an xã</div></div>""", unsafe_allow_html=True)
     else:
+        # CA ĐÊM: PHÂN NHÓM
         cax_duty = df_week[df_week[f"{d}_D_CAX"] == 'x']
         ap_duty = df_week[df_week[f"{d}_D_Ap"] == 'x']
         st.markdown(f'<div class="group-header">TỔNG QUÂN SỐ TRỰC ĐÊM <span class="count-badge">{len(cax_duty) + len(ap_duty)} đ/c</span></div>', unsafe_allow_html=True)
