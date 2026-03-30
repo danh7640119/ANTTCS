@@ -24,7 +24,7 @@ try:
     url = st.secrets["connections"]["gsheets"]["spreadsheet"] 
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    # Đọc dữ liệu từ Sheet "LuuTru"
+    # Đọc dữ liệu từ Sheet
     df_raw = conn.read(spreadsheet=url, ttl=0, worksheet="1727254590", skiprows=2)
 
     # Định nghĩa cấu trúc cột
@@ -40,18 +40,14 @@ try:
     for col in df.columns[3:]:
         df[col] = df[col].astype(str).str.strip().str.lower()
 
-    # --- XỬ LÝ DANH SÁCH TUẦN (SẮP XẾP DESC) ---
-    # 1. Lấy danh sách tuần duy nhất theo thứ tự xuất hiện trong Sheets
+    # --- XỬ LÝ DANH SÁCH TUẦN ---
     list_weeks_raw = df['Tuan'].unique().tolist()
-    
-    # 2. Đảo ngược danh sách (DESC): Tuần cuối cùng trong Sheets sẽ lên đầu danh sách App
     list_weeks = list_weeks_raw[::-1] 
 
-    # 3. Tự động xác định tuần hiện tại (dò theo ngày tháng dd/mm)
     now = datetime.now()
     today_str = now.strftime("%d/%m")
     
-    default_week_idx = 0 # Mặc định là tuần mới nhất (đầu danh sách sau khi đảo)
+    default_week_idx = 0 
     for i, week_name in enumerate(list_weeks):
         if today_str in str(week_name):
             default_week_idx = i
@@ -82,20 +78,22 @@ try:
 
     # --- BỘ LỌC SIDEBAR ---
     st.sidebar.header("📅 THỜI GIAN TRỰC")
-    
-    # Selectbox hiển thị tuần với Tuần mới nhất nằm ở trên cùng
     selected_week = st.sidebar.selectbox("Chọn tuần:", list_weeks, index=default_week_idx)
-    
     days_vn = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
     today_weekday_idx = now.weekday()
     selected_day = st.sidebar.selectbox("Chọn ngày:", days_vn, index=today_weekday_idx)
-    
     selected_shift = st.sidebar.radio("Chọn ca trực:", ["Sáng", "Đêm"], horizontal=True)
 
     # --- HIỂN THỊ DANH SÁCH ---
     day_map = dict(zip(days_vn, day_codes))
     d = day_map[selected_day]
     df_week = df[df['Tuan'] == selected_week]
+
+    # Danh sách trực đêm (cả xã và ấp) để so sánh khi xem ca sáng
+    night_list_cax = df_week[df_week[f"{d}_D_CAX"] == 'x']['HoTen'].tolist()
+    night_list_ap = df_week[df_week[f"{d}_D_Ap"] == 'x']['HoTen'].tolist()
+    
+    # Danh sách trực sáng để so sánh khi xem ca đêm
     morning_list = df_week[df_week[f"{d}_N"] == 'x']['HoTen'].tolist()
 
     st.markdown(f'<div class="time-box">📅 {selected_week} | {selected_day} | Ca {selected_shift}</div>', unsafe_allow_html=True)
@@ -106,8 +104,28 @@ try:
         if not on_duty.empty:
             grid = st.columns(3)
             for idx, (_, row) in enumerate(on_duty.iterrows()):
+                # KIỂM TRA: Nếu trực sáng mà ban đêm có trực ở Xã hoặc Ấp
+                is_night_cax = row['HoTen'] in night_list_cax
+                is_night_ap = row['HoTen'] in night_list_ap
+                
+                is_double = "double-duty" if (is_night_cax or is_night_ap) else ""
+                
+                # Ghi chú cụ thể trực đêm ở đâu
+                night_note = ""
+                if is_night_cax:
+                    night_note = "<br><small style='color:#B45309'>⚠️ <i>Đêm trực tại Xã</i></small>"
+                elif is_night_ap:
+                    night_note = "<br><small style='color:#B45309'>⚠️ <i>Đêm trực tại Ấp</i></small>"
+
                 with grid[idx % 3]:
-                    st.markdown(f"""<div class="duty-card"><div class="name-text">{row['HoTen']}</div><div class="info-text">🏠 Đơn vị: {row['Ap']}</div><div class="location-tag">📍 Tại Công an xã</div></div>""", unsafe_allow_html=True)
+                    st.markdown(f"""
+                        <div class="duty-card {is_double}">
+                            <div class="name-text">{row['HoTen']}</div>
+                            <div class="info-text">🏠 Đơn vị: {row['Ap']}</div>
+                            <div class="location-tag">📍 Tại Công an xã</div>
+                            {night_note}
+                        </div>
+                    """, unsafe_allow_html=True)
     else:
         # CA ĐÊM: PHÂN NHÓM
         cax_duty = df_week[df_week[f"{d}_D_CAX"] == 'x']
