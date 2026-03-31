@@ -26,7 +26,7 @@ try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     
     # Đọc dữ liệu trực gốc
-    df_raw = conn.read(spreadsheet=url, ttl=0, worksheet="1727254590", skiprows=2)
+    df_raw = conn.read(spreadsheet=url, ttl=0, worksheet="luutru", skiprows=2)
     cols = ["Tuan", "Ap", "HoTen"]
     day_codes = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
     for code in day_codes:
