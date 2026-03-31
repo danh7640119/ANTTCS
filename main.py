@@ -10,7 +10,7 @@ GIO_ORDER = {"07-10h": 1, "10-13h": 2, "13-15h": 3, "15-17h": 4, "17-20h": 5, "2
 
 st.set_page_config(page_title="Điều hành ANTT Bắc Tân Uyên", layout="wide")
 
-# CSS Giao diện (Giữ phong cách chuyên nghiệp)
+# CSS Giao diện
 st.markdown("""
     <style>
     .dot-xuat-container { background-color: #FFF5F5; padding: 20px; border-radius: 10px; border: 2px dashed #FECACA; margin: 15px 0; }
@@ -66,7 +66,7 @@ try:
         if not tasks.empty:
             c1, c2 = st.columns(2)
             with c1:
-                st.info("🛡️ Gác Cổng (Theo ID ca)")
+                st.info("🛡️ Gác Cổng")
                 gac_v = tasks[tasks['LoaiNhiemVu'] == 'Gác cổng'].copy()
                 gac_v['SortID'] = gac_v['Gio'].map(GIO_ORDER)
                 st.table(gac_v.sort_values('SortID')[["Gio", "HoTen"]])
@@ -77,7 +77,7 @@ try:
 
     with tab_manage:
         if not is_admin:
-            st.warning("Vui lòng nhập đúng Mã điều hành để thực hiện phân công.")
+            st.warning("Vui lòng nhập đúng Mã điều hành.")
         else:
             current_saved = df_history[(df_history['Tuan'] == selected_week) & (df_history['Ngay'] == selected_day)]
             summary = df_history.groupby("HoTen")["Diem"].sum().reset_index() if not df_history.empty else pd.DataFrame(columns=["HoTen", "Diem"])
@@ -101,12 +101,10 @@ try:
             for i, gio in enumerate(list(GIO_ORDER.keys())):
                 p_df = pool_s_df if i < 4 else pool_d_df
                 saved = current_saved[(current_saved['Gio'] == gio) & (current_saved['LoaiNhiemVu'] == 'Gác cổng')]
-                
                 default_idx = 0
                 if not saved.empty and not p_df.empty:
                     match = p_df[p_df['HoTen'] == saved.iloc[0]['HoTen']]
                     if not match.empty: default_idx = p_df.index.get_loc(match.index[0])
-                
                 with (cg1 if i < 5 else cg2):
                     if not p_df.empty:
                         sel = st.selectbox(f"Ca {gio}", p_df["Display"], index=default_idx, key=f"gac_v15_{i}")
@@ -117,31 +115,59 @@ try:
             st.subheader("🚔 2. TUẦN TRA ĐÊM")
             def_tt1 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C1']['HoTen'].tolist() or pool_d_df["HoTen"].head(4).tolist()
             def_tt2 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C2']['HoTen'].tolist() or pool_d_df["HoTen"].iloc[4:8].tolist()
-            
             ct1, ct2 = st.columns(2)
-            with ct1: 
-                tt1_sel = st.multiselect("Ca 1 (18-22h):", pool_d_df["Display"], 
-                                         default=[f"{n} ({dict_ap.get(n)}) - {int(summary[summary['HoTen']==n]['Diem'].sum())}đ" for n in def_tt1 if n in pool_d_df["HoTen"].values])
-            with ct2: 
-                tt2_sel = st.multiselect("Ca 2 (22-02h):", pool_d_df["Display"], 
-                                         default=[f"{n} ({dict_ap.get(n)}) - {int(summary[summary['HoTen']==n]['Diem'].sum())}đ" for n in def_tt2 if n in pool_d_df["HoTen"].values])
+            with ct1: tt1_sel = st.multiselect("Ca 1 (18-22h):", pool_d_df["Display"], default=[f"{n} ({dict_ap.get(n)}) - {int(summary[summary['HoTen']==n]['Diem'].sum())}đ" for n in def_tt1 if n in pool_d_df["HoTen"].values], key="tt1_key")
+            with ct2: tt2_sel = st.multiselect("Ca 2 (22-02h):", pool_d_df["Display"], default=[f"{n} ({dict_ap.get(n)}) - {int(summary[summary['HoTen']==n]['Diem'].sum())}đ" for n in def_tt2 if n in pool_d_df["HoTen"].values], key="tt2_key")
 
-            # 3. PHẦN ĐỘT XUẤT (DIV RIÊNG)
+            # 3. PHẦN ĐỘT XUẤT
             st.markdown('<div class="dot-xuat-container">', unsafe_allow_html=True)
             st.subheader("🆘 3. ĐIỀU ĐỘNG ĐỘT XUẤT")
-            if 'num_tasks_v15' not in st.session_state: st.session_state.num_tasks_v15 = 1
-            if st.button("➕ Thêm đầu việc đột xuất"): st.session_state.num_tasks_v15 += 1
+            if 'num_dx' not in st.session_state: st.session_state.num_dx = 1
+            if st.button("➕ Thêm nhóm việc"): st.session_state.num_dx += 1
             
             saved_dx = current_saved[current_saved['LoaiNhiemVu'].str.contains("ĐX: ", na=False)]
-            unique_tasks = saved_dx['LoaiNhiemVu'].unique().tolist()
-            dx_results = []
+            u_tasks = saved_dx['LoaiNhiemVu'].unique().tolist()
+            dx_res = []
             
-            loop_cnt = max(st.session_state.num_tasks_v15, len(unique_tasks))
-            for i in range(loop_cnt):
+            for i in range(max(st.session_state.num_dx, len(u_tasks))):
                 st.write(f"**Nhóm việc {i+1}:**")
                 c_dx1, c_dx2, c_dx3 = st.columns([3, 5, 1])
-                d_name = unique_tasks[i].replace("ĐX: ", "") if i < len(unique_tasks) else ""
-                d_m_real = saved_dx[saved_dx['LoaiNhiemVu'] == unique_tasks[i]]['HoTen'].tolist() if i < len(unique_tasks) else []
-                
-                with c_dx1: t_name = st.text_input(f"Tên nhiệm vụ {i+1}", value=d_name, key=f"dx_n15_{i}", placeholder="VD: Truy bắt...")
-                with c_dx2: t_m_sel = st.multiselect(f"Phân quân số {i+1}", all_mem_df["Display
+                d_n = u_tasks[i].replace("ĐX: ", "") if i < len(u_tasks) else ""
+                d_m = saved_dx[saved_dx['LoaiNhiemVu'] == u_tasks[i]]['HoTen'].tolist() if i < len(u_tasks) else []
+                with c_dx1: t_n = st.text_input(f"Tên việc {i+1}", value=d_n, key=f"dxn_{i}")
+                with c_dx2: t_m = st.multiselect(f"Quân số {i+1}", all_mem_df["Display"], default=[f"{n} ({dict_ap.get(n)}) - {int(summary[summary['HoTen']==n]['Diem'].sum())}đ" for n in d_m if n in all_mem_df["HoTen"].values], key=f"dxm_{i}")
+                with c_dx3: t_d = st.number_input(f"Điểm", 1, 15, 3, key=f"dxd_{i}")
+                if t_n and t_m:
+                    for m_d in t_m: dx_res.append({"HoTen": display_to_real[m_d], "LoaiNhiemVu": f"ĐX: {t_n}", "Gio": "Đột xuất", "Diem": t_d})
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if st.button("💾 LƯU PHƯƠNG ÁN", use_container_width=True, type="primary"):
+                final = gac_results + \
+                        [{"HoTen": display_to_real[p], "LoaiNhiemVu": "Tuần tra C1", "Gio": "18-22h", "Diem": 2} for p in tt1_sel] + \
+                        [{"HoTen": display_to_real[p], "LoaiNhiemVu": "Tuần tra C2", "Gio": "22-02h", "Diem": 2} for p in tt2_sel] + \
+                        dx_res
+                df_s = pd.DataFrame(final)
+                df_s["Tuan"], df_s["Ngay"], df_s["NgayTao"] = selected_week, selected_day, datetime.now().strftime("%d/%m/%Y %H:%M")
+                if not df_history.empty:
+                    df_history = df_history[~((df_history['Tuan'] == selected_week) & (df_history['Ngay'] == selected_day))]
+                    f_save = pd.concat([df_history, df_s], ignore_index=True)
+                else: f_save = df_s
+                conn.update(worksheet="NhiemVu", data=f_save)
+                st.success("Đã lưu thành công!")
+                st.rerun()
+
+    # --- DANH SÁCH TỔNG ---
+    st.markdown('<div class="section-header">👥 QUÂN SỐ TRỰC TỔNG QUAN</div>', unsafe_allow_html=True)
+    cs, cd, ca = st.columns(3)
+    with cs:
+        st.markdown("<p style='color:#2563EB; font-weight:bold;'>☀️ TRỰC SÁNG</p>", unsafe_allow_html=True)
+        for n in morning_list: st.markdown(f'<div class="morning-card {"double-duty-warning" if n in night_cax_list else ""}"><div class="name-tag">{n}</div><div class="ap-tag">Ấp: {dict_ap.get(n)}</div></div>', unsafe_allow_html=True)
+    with cd:
+        st.markdown("<p style='color:#EA580C; font-weight:bold;'>🌙 TRỰC ĐÊM XÃ</p>", unsafe_allow_html=True)
+        for n in night_cax_list: st.markdown(f'<div class="night-cax-card {"double-duty-warning" if n in morning_list else ""}"><div class="name-tag">{n}</div><div class="ap-tag">Ấp: {dict_ap.get(n)}</div></div>', unsafe_allow_html=True)
+    with ca:
+        st.markdown("<p style='color:#16A34A; font-weight:bold;'>🏡 TRỰC ẤP</p>", unsafe_allow_html=True)
+        for n in night_ap_list: st.markdown(f'<div class="night-ap-card"><div class="name-tag">{n}</div><div class="ap-tag">Ấp: {dict_ap.get(n)}</div></div>', unsafe_allow_html=True)
+
+except Exception as e:
+    st.error(f"Lỗi: {e}")
