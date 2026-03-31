@@ -5,7 +5,7 @@ from datetime import datetime
 
 # --- 1. CẤU HÌNH BẢO MẬT & TRANG ---
 # Bạn có thể đổi mật khẩu tại đây
-ADMIN_PASSWORD = "123" 
+ADMIN_PASSWORD = "13579" 
 
 st.set_page_config(page_title="Hệ thống Điều hành ANTT", layout="wide", page_icon="👮")
 
@@ -26,7 +26,7 @@ try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     
     # Đọc Sheet trực gốc (Dùng GID hoặc Tên Sheet đều được)
-    df_raw = conn.read(spreadsheet=url, worksheet="1727254590", ttl=0, skiprows=2)
+    df_raw = conn.read(spreadsheet=url, worksheet="luutru", ttl=0, skiprows=2)
     # ... (Phần xử lý columns giữ nguyên như các bản trước) ...
     cols = ["Tuan", "Ap", "HoTen"]
     day_codes = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
