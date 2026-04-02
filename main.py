@@ -13,7 +13,7 @@ except Exception:
 
 LIST_NU = ["Ngô Thị Hồng Thắm", "Nguyễn Thị Thanh Tuyền", "Trần Thị Lan Phương", "Huỳnh Thị Thanh Nhi", "Đinh Thị Mai Quyền", "Vũ Thị Thơm"]
 GIO_ORDER = {"07-10h": 1, "10-13h": 2, "13-15h": 3, "15-17h": 4, "17-20h": 5, "20-23h": 6, "23-01h": 7, "01-03h": 8, "03-05h": 9, "05-07h": 10}
-TTL_2MIN = "2m" # Tối ưu để không bị Google API chặn
+TTL_2MIN = "2m" # Tối ưu cache để tránh bị Google API chặn liên tục
 
 st.set_page_config(page_title="Điều hành ANTT Bắc Tân Uyên", layout="wide")
 
@@ -66,7 +66,7 @@ try:
 
     tab_view, tab_manage, tab_attendance = st.tabs(["📋 XEM NHIỆM VỤ", "⚙️ PHÂN CÔNG CHI TIẾT", "✅ ĐIỂM DANH"])
 
-    # --- TAB 1: XEM NHIỆM VỤ (GIỮ NGUYÊN) ---
+    # --- TAB 1: XEM NHIỆM VỤ ---
     with tab_view:
         st.subheader(f"📌 LỊCH PHÂN CÔNG {selected_day} - TUẦN {selected_week}")
         tasks = df_history[(df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day)]
@@ -82,9 +82,9 @@ try:
                 st.warning("🚔 TUẦN TRA & ĐỘT XUẤT")
                 st.table(tasks[tasks['LoaiNhiemVu'] != 'Gác cổng'][["LoaiNhiemVu", "HoTen", "Ấp"]])
         else:
-            st.info("Chưa có dữ liệu phân công chi tiết cho ngày này.")
+            st.info("Chưa có dữ liệu phân công chi tiết.")
 
-    # --- TAB 2: PHÂN CÔNG CHI TIẾT (GIỮ NGUYÊN GỐC - ĐÃ KHÔI PHỤC) ---
+    # --- TAB 2: PHÂN CÔNG CHI TIẾT (GIỮ NGUYÊN GỐC) ---
     with tab_manage:
         if not is_admin:
             st.warning("Vui lòng nhập Mã điều hành để thực hiện phân công.")
@@ -124,13 +124,13 @@ try:
             def_tt1 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C1']['HoTen'].tolist() or pool_d["HoTen"].head(4).tolist()
             def_tt2 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C2']['HoTen'].tolist() or pool_d["HoTen"].iloc[4:8].tolist()
             ct1, ct2 = st.columns(2)
-            with ct1: tt1 = st.multiselect("Ca 1 (18-22h):", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in def_tt1], key="tt1")
-            with ct2: tt2 = st.multiselect("Ca 2 (22-02h):", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in def_tt2], key="tt2")
+            with ct1: tt1 = st.multiselect("Ca 1:", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in def_tt1], key="tt1")
+            with ct2: tt2 = st.multiselect("Ca 2:", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in def_tt2], key="tt2")
 
             st.markdown('<div class="dot-xuat-container">', unsafe_allow_html=True)
-            st.subheader("🆘 3. ĐIỀU ĐỘNG ĐỘT XUẤT")
+            st.subheader("🆘 3. ĐỘT XUẤT")
             if 'n_dx' not in st.session_state: st.session_state.n_dx = 1
-            if st.button("➕ Thêm nhiệm vụ"): st.session_state.n_dx += 1
+            if st.button("➕ Thêm việc"): st.session_state.n_dx += 1
             s_dx = current_saved[current_saved['LoaiNhiemVu'].str.contains("ĐX: ", na=False)]
             u_t = s_dx['LoaiNhiemVu'].unique().tolist()
             dx_res = []
@@ -140,52 +140,62 @@ try:
                 d_m = s_dx[s_dx['LoaiNhiemVu'] == u_t[i]]['HoTen'].tolist() if i < len(u_t) else []
                 with cx1: t_n = st.text_input(f"Việc {i+1}", value=d_n, key=f"dxn_{i}")
                 with cx2: t_m = st.multiselect(f"Quân {i+1}", pool_dx["Display"], default=[d for d in pool_dx["Display"] if d.split(" (")[0] in d_m], key=f"dxm_{i}")
-                with cx3: t_d = st.number_input(f"Đ", 1, 15, 3, key=f"dxd_{i}")
+                with cx3: t_d = st.number_input(f"Đ", 1, 15, 3, key=f"dxd_{i}", label_visibility="collapsed")
                 if t_n and t_m:
                     for m in t_m: dx_res.append({"HoTen": m.split(" (")[0], "LoaiNhiemVu": f"ĐX: {t_n}", "Gio": "Đột xuất", "Diem": t_d})
             st.markdown('</div>', unsafe_allow_html=True)
 
-            if st.button("💾 LƯU PHƯƠNG ÁN ĐIỀU ĐỘNG", use_container_width=True, type="primary"):
+            if st.button("💾 LƯU PHƯƠNG ÁN", use_container_width=True, type="primary"):
                 final = g_res + [{"HoTen": p.split(" (")[0], "LoaiNhiemVu": "Tuần tra C1", "Gio": "18-22h", "Diem": 2} for p in tt1] + \
                         [{"HoTen": p.split(" (")[0], "LoaiNhiemVu": "Tuần tra C2", "Gio": "22-02h", "Diem": 2} for p in tt2] + dx_res
                 df_s = pd.DataFrame(final)
                 df_s["Tuan"], df_s["Ngay"], df_s["NgayTao"] = selected_week, selected_day, datetime.now().strftime("%d/%m/%Y %H:%M")
                 df_save = pd.concat([df_history[~((df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day))], df_s], ignore_index=True)
                 conn.update(worksheet="NhiemVu", data=df_save)
-                st.success("Đã lưu thành công!"); st.rerun()
+                st.success("Đã lưu!"); st.rerun()
 
-    # --- TAB 3: ĐIỂM DANH (TÍNH NĂNG THÊM MỚI - CHỈ LƯU VẮNG) ---
+    # --- TAB 3: ĐIỂM DANH (CHỈ HIỆN Đ/C TRỰC TRONG NGÀY) ---
     with tab_attendance:
         if not is_admin:
             st.warning("Vui lòng nhập Mã điều hành để điểm danh.")
         else:
-            st.subheader(f"✅ ĐIỂM DANH QUÂN SỐ {selected_day}")
-            all_names = sorted(list(set(morning_list + night_cax_list + night_ap_list)))
-            with st.form("form_att"):
-                vắng_data = []
-                for name in all_names:
-                    c1, c2, c3 = st.columns([3, 3, 4])
-                    c1.write(f"**{name}**")
-                    stt = c2.radio("Trạng thái", ["Có mặt", "Vắng"], key=f"at_{name}", horizontal=True, label_visibility="collapsed")
-                    re = c3.text_input("Lý do", key=f"ar_{name}", placeholder="Lý do vắng...", label_visibility="collapsed")
-                    if stt == "Vắng":
-                        lt = []
-                        if name in morning_list: lt.append("Sáng")
-                        if name in night_cax_list: lt.append("Đêm Xã")
-                        if name in night_ap_list: lt.append("Đêm Ấp")
-                        vắng_data.append({"Tuan": selected_week, "Ngay": selected_day, "HoTen": name, "TrangThai": "Vắng", "LyDo": re, "LoaiTruc": ", ".join(lt), "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M")})
-                
-                if st.form_submit_button("💾 XÁC NHẬN & LƯU VẮNG"):
-                    if vắng_data:
-                        try:
-                            df_db = conn.read(spreadsheet=URL_SHEET, worksheet="DiemDanh", ttl=0)
-                            df_f = pd.concat([df_db, pd.DataFrame(vắng_data)], ignore_index=True)
-                            conn.update(worksheet="DiemDanh", data=df_f)
-                            st.success(f"Đã lưu {len(vắng_data)} đ/c vắng mặt.")
-                        except: st.error("Lỗi bảng DiemDanh.")
-                    else: st.success("Tất cả có mặt đủ!")
+            st.subheader(f"✅ ĐIỂM DANH QUÂN SỐ TRỰC {selected_day}")
+            # LỌC CHỈ NHỮNG NGƯỜI CÓ TRONG DANH SÁCH TRỰC HÔM ĐÓ
+            current_active_names = sorted(list(set(morning_list + night_cax_list + night_ap_list)))
+            
+            if not current_active_names:
+                st.info("Ngày này không có đồng chí nào có lịch trực.")
+            else:
+                with st.form("form_att"):
+                    vắng_data = []
+                    for name in current_active_names:
+                        c1, c2, c3 = st.columns([3, 3, 4])
+                        c1.write(f"**{name}**")
+                        stt = c2.radio("Trạng thái", ["Có mặt", "Vắng"], key=f"at_{name}", horizontal=True, label_visibility="collapsed")
+                        re = c3.text_input("Lý do", key=f"ar_{name}", placeholder="Lý do vắng...", label_visibility="collapsed")
+                        
+                        if stt == "Vắng":
+                            lt = []
+                            if name in morning_list: lt.append("Sáng")
+                            if name in night_cax_list: lt.append("Đêm Xã")
+                            if name in night_ap_list: lt.append("Đêm Ấp")
+                            vắng_data.append({
+                                "Tuan": selected_week, "Ngay": selected_day, "HoTen": name, 
+                                "TrangThai": "Vắng", "LyDo": re, "LoaiTruc": ", ".join(lt), 
+                                "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M")
+                            })
+                    
+                    if st.form_submit_button("💾 XÁC NHẬN & LƯU VẮNG"):
+                        if vắng_data:
+                            try:
+                                df_db = conn.read(spreadsheet=URL_SHEET, worksheet="DiemDanh", ttl=0)
+                                df_f = pd.concat([df_db, pd.DataFrame(vắng_data)], ignore_index=True)
+                                conn.update(worksheet="DiemDanh", data=df_f)
+                                st.success(f"Đã lưu {len(vắng_data)} đồng chí vắng mặt.")
+                            except: st.error("Lỗi bảng DiemDanh.")
+                        else: st.success("Tất cả có mặt đủ!")
 
-    # --- QUÂN SỐ TỔNG QUAN (GIỮ MÀU SẮC GỐC) ---
+    # --- QUÂN SỐ TỔNG QUAN (CÔNG KHAI) ---
     st.markdown('<div class="section-header">👥 QUÂN SỐ TRỰC TỔNG QUAN</div>', unsafe_allow_html=True)
     c_s, c_d, c_a = st.columns(3)
     with c_s:
