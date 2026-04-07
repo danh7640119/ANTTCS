@@ -11,7 +11,7 @@ except Exception:
     st.error("⚠️ LỖI CẤU HÌNH: Kiểm tra lại Streamlit Secrets!")
     st.stop()
 
-# ĐÃ CẬP NHẬT DANH SÁCH NỮ MỚI
+# DANH SÁCH NỮ CẬP NHẬT
 LIST_NU = [
     "Ngô Thị Hồng Thắm", "Nguyễn Thị Thanh Tuyền", "Trần Thị Lan Phương", 
     "Huỳnh Thụy Thanh Nhi", "Đinh Thị Mai Quyền", "Vũ Thị Thơm", "Lê Thanh Tuyền"
@@ -37,8 +37,6 @@ st.markdown("""
 
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-    
-    # Đọc dữ liệu trực tiếp (Đã bỏ TTL)
     df_raw = conn.read(spreadsheet=URL_SHEET, worksheet="luutru", skiprows=2)
     cols = ["Tuan", "Ap", "HoTen"]
     day_codes = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
@@ -52,7 +50,6 @@ try:
     except:
         df_history = pd.DataFrame(columns=["Tuan", "Ngay", "HoTen", "LoaiNhiemVu", "Gio", "Diem", "NgayTao"])
 
-    # Sidebar
     st.sidebar.header("🔐 HỆ THỐNG ĐIỀU HÀNH")
     access_key = st.sidebar.text_input("Mã điều hành:", type="password")
     is_admin = (access_key == ADMIN_PASSWORD)
@@ -88,7 +85,7 @@ try:
         else:
             st.info("Chưa có dữ liệu phân công chi tiết.")
 
-    # --- TAB 2: PHÂN CÔNG (TÍNH ĐIỂM THEO NGÀY) ---
+    # --- TAB 2: PHÂN CÔNG (SẮP XẾP ƯU TIÊN ĐỘT XUẤT) ---
     with tab_manage:
         if not is_admin:
             st.warning("Vui lòng nhập Mã điều hành để phân công.")
@@ -96,15 +93,32 @@ try:
             current_saved = df_history[(df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day)]
             day_summary = current_saved.groupby("HoTen")["Diem"].sum().reset_index() if not current_saved.empty else pd.DataFrame(columns=["HoTen", "Diem"])
 
-            def get_pool(target_names):
+            def get_pool(target_names, is_dx=False):
                 names_nam = [n for n in target_names if n not in LIST_NU]
                 df_p = pd.DataFrame({"HoTen": names_nam}).merge(day_summary, on="HoTen", how="left").fillna(0)
+                
+                # Logic phân loại để sắp xếp
+                def set_prio(name):
+                    if name in night_cax_list: return 1  # Trực Xã cao nhất
+                    if name in night_ap_list: return 2   # Trực Ấp kế tiếp
+                    return 3                             # Trực Sáng
+                
+                df_p['Prio'] = df_p['HoTen'].apply(set_prio)
                 df_p['StName'] = df_p['HoTen'].apply(lambda n: "Trực Xã" if n in night_cax_list else (f"Trực {dict_ap.get(n)}" if n in night_ap_list else "Trực Sáng"))
-                df_p = df_p.sort_values(['Diem'], ascending=[True]) # Ưu tiên người 0 điểm lên đầu
-                df_p["Display"] = df_p.apply(lambda r: f"{r['HoTen']} ({r['StName']}) - Đã phân: {int(r['Diem'])} việc", axis=1)
+                
+                # Sắp xếp: Nếu là Đột xuất thì ưu tiên Prio (Xã -> Ấp -> Sáng) rồi mới tới Diem
+                if is_dx:
+                    df_p = df_p.sort_values(['Prio', 'Diem'], ascending=[True, True])
+                else:
+                    df_p = df_p.sort_values(['Diem', 'Prio'], ascending=[True, True])
+                
+                df_p["Display"] = df_p.apply(lambda r: f"{r['HoTen']} ({r['StName']}) - Phân: {int(r['Diem'])}đ", axis=1)
                 return df_p
 
-            pool_s = get_pool(morning_list); pool_d = get_pool(night_cax_list); pool_all = get_pool(list(set(morning_list+night_cax_list+night_ap_list)))
+            pool_s = get_pool(morning_list)
+            pool_d = get_pool(night_cax_list)
+            # Pool dành riêng cho Đột xuất với sắp xếp ưu tiên Xã -> Ấp
+            pool_dx = get_pool(list(set(morning_list + night_cax_list + night_ap_list)), is_dx=True)
 
             st.subheader("🛡️ 1. GÁC CỔNG (1đ)")
             g_res = []
@@ -129,7 +143,7 @@ try:
             with ct2: tt2 = st.multiselect("Ca 2:", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in def_tt2])
 
             st.markdown('<div class="dot-xuat-container">', unsafe_allow_html=True)
-            st.subheader("🆘 3. ĐỘT XUẤT")
+            st.subheader("🆘 3. ĐIỀU ĐỘNG ĐỘT XUẤT (Ưu tiên Xã > Ấp)")
             if 'n_dx' not in st.session_state: st.session_state.n_dx = 1
             if st.button("➕ Thêm việc"): st.session_state.n_dx += 1
             s_dx = current_saved[current_saved['LoaiNhiemVu'].str.contains("ĐX: ", na=False)]
@@ -141,7 +155,8 @@ try:
                 d_m = s_dx[s_dx['LoaiNhiemVu'] == u_t[i]]['HoTen'].tolist() if i < len(u_t) else []
                 d_v = int(s_dx[s_dx['LoaiNhiemVu'] == u_t[i]]['Diem'].iloc[0]) if i < len(u_t) else 1
                 with cx1: t_n = st.text_input(f"Việc {i+1}", value=d_n, key=f"dxn_{i}")
-                with cx2: t_m = st.multiselect(f"Quân {i+1}", pool_all["Display"], default=[d for d in pool_all["Display"] if d.split(" (")[0] in d_m], key=f"dxm_{i}")
+                # Sử dụng pool_dx đã được sắp xếp ưu tiên Xã ở trên
+                with cx2: t_m = st.multiselect(f"Quân {i+1}", pool_dx["Display"], default=[d for d in pool_dx["Display"] if d.split(" (")[0] in d_m], key=f"dxm_{i}")
                 with cx3: t_d = st.number_input(f"Đ", 1, 10, d_v, key=f"dxd_{i}")
                 if t_n and t_m:
                     for m in t_m: dx_res.append({"HoTen": m.split(" (")[0], "LoaiNhiemVu": f"ĐX: {t_n}", "Gio": "Đột xuất", "Diem": t_d})
@@ -156,7 +171,7 @@ try:
                 conn.update(worksheet="NhiemVu", data=df_save)
                 st.success("Đã lưu!"); st.rerun()
 
-    # --- TAB 3: ĐIỂM DANH (CHỈ HIỆN Đ/C TRỰC - CHỈ LƯU VẮNG) ---
+    # --- TAB 3: ĐIỂM DANH ---
     with tab_attendance:
         if not is_admin:
             st.warning("Vui lòng nhập Mã điều hành.")
@@ -182,7 +197,7 @@ try:
                             st.success("Đã lưu vắng!"); st.rerun()
                         else: st.success("Đầy đủ quân số!")
 
-    # --- QUÂN SỐ TỔNG QUAN (KHÔI PHỤC MÀU & PHÂN BIỆT ĐÊM) ---
+    # --- QUÂN SỐ TỔNG QUAN ---
     st.markdown('<div class="section-header">👥 QUÂN SỐ TRỰC TỔNG QUAN</div>', unsafe_allow_html=True)
     c_s, c_d, c_a = st.columns(3)
     with c_s:
