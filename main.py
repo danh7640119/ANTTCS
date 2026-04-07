@@ -13,7 +13,7 @@ except Exception:
 
 LIST_NU = ["Ngô Thị Hồng Thắm", "Nguyễn Thị Thanh Tuyền", "Trần Thị Lan Phương", "Huỳnh Thụy Thanh Nhi", "Đinh Thị Mai Quyền", "Vũ Thị Thơm", "Lê Thanh Tuyền"]
 GIO_ORDER = {"07-10h": 1, "10-13h": 2, "13-15h": 3, "15-17h": 4, "17-20h": 5, "20-23h": 6, "23-01h": 7, "01-03h": 8, "03-05h": 9, "05-07h": 10}
-TTL_2MIN = "2m" # Tối ưu cache để tránh bị Google API chặn liên tục
+# TTL_2MIN = "30s" # Tối ưu cache để tránh bị Google API chặn liên tục
 
 st.set_page_config(page_title="Điều hành ANTT Bắc Tân Uyên", layout="wide")
 
@@ -35,7 +35,7 @@ try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     
     # Đọc dữ liệu (Dùng TTL 2m để hạn chế request)
-    df_raw = conn.read(spreadsheet=URL_SHEET, worksheet="luutru", ttl=TTL_2MIN, skiprows=2)
+    df_raw = conn.read(spreadsheet=URL_SHEET, worksheet="luutru", skiprows=2)
     cols = ["Tuan", "Ap", "HoTen"]
     day_codes = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
     for code in day_codes: cols.extend([f"{code}_N", f"{code}_D_CAX", f"{code}_D_Ap"])
