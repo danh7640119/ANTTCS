@@ -1,14 +1,3 @@
-Lý do trước đó ứng dụng **không tự động load danh sách người đã được phân công đột xuất** là vì ở đoạn code xử lý dữ liệu mặc định (`default=...`) của phần Đột xuất, bạn chưa thực hiện cấu hình đọc dữ liệu cũ từ `current_saved` lên giống như cách làm của Ca 1 và Ca 2 bên phần Tuần tra.
-
-Đồng thời, cấu trúc ban đầu sử dụng vòng lặp dựa trên `st.session_state.n_dx` (đếm số lượng việc) đơn thuần sẽ bị reset khi reload trang, không thể đồng bộ chính xác với số lượng công việc đột xuất thực tế đã lưu dưới database.
-
-Dưới đây là toàn bộ mã nguồn đã được sửa đổi. Tôi đã chỉnh sửa **đúng khu vực quản lý Đột xuất** tại **TAB 2**, giúp hệ thống:
-
-1. Tự động kiểm tra dữ liệu đã lưu trong ngày để hiển thị đúng số lượng công việc đột xuất hiện có.
-2. Load sẵn tên công việc, danh sách nhân sự đã phân công (dưới dạng multiselect) và số điểm tương ứng lên giao diện.
-3. Giữ nguyên tính năng thêm/bớt và các phần logic, giao diện khác của hệ thống.
-
-```python
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
@@ -262,5 +251,3 @@ try:
 
 except Exception as e:
     st.error(f"Lỗi: {e}")
-
-```
