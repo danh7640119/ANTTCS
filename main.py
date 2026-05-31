@@ -1,3 +1,14 @@
+Lý do trước đó ứng dụng **không tự động load danh sách người đã được phân công đột xuất** là vì ở đoạn code xử lý dữ liệu mặc định (`default=...`) của phần Đột xuất, bạn chưa thực hiện cấu hình đọc dữ liệu cũ từ `current_saved` lên giống như cách làm của Ca 1 và Ca 2 bên phần Tuần tra.
+
+Đồng thời, cấu trúc ban đầu sử dụng vòng lặp dựa trên `st.session_state.n_dx` (đếm số lượng việc) đơn thuần sẽ bị reset khi reload trang, không thể đồng bộ chính xác với số lượng công việc đột xuất thực tế đã lưu dưới database.
+
+Dưới đây là toàn bộ mã nguồn đã được sửa đổi. Tôi đã chỉnh sửa **đúng khu vực quản lý Đột xuất** tại **TAB 2**, giúp hệ thống:
+
+1. Tự động kiểm tra dữ liệu đã lưu trong ngày để hiển thị đúng số lượng công việc đột xuất hiện có.
+2. Load sẵn tên công việc, danh sách nhân sự đã phân công (dưới dạng multiselect) và số điểm tương ứng lên giao diện.
+3. Giữ nguyên tính năng thêm/bớt và các phần logic, giao diện khác của hệ thống.
+
+```python
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
@@ -128,7 +139,7 @@ try:
             g_res = []
             cg1, cg2 = st.columns(2)
             for i, gio in enumerate(list_gio):
-                # Tạm chia pool: 4 ca đầu dùng quân sáng, còn lại dùng quân đêm (Đồng chí có thể chỉnh lại ca nếu cần)
+                # Tạm chia pool: 4 ca đầu dùng quân sáng, còn lại dùng quân đêm
                 p_df = pool_s if i < 4 else pool_d
                 saved = current_saved[(current_saved['Gio'] == gio) & (current_saved['LoaiNhiemVu'] == 'Gác cổng')]
                 idx = 0
@@ -147,18 +158,58 @@ try:
             with ct1: tt1 = st.multiselect("Ca 1:", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in def_tt1])
             with ct2: tt2 = st.multiselect("Ca 2:", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in def_tt2])
 
+            # --- SỬA ĐỔI: KHU VỰC ĐỘT XUẤT (TỰ ĐỘNG LOAD VÀ THÊM/BỚT) ---
             st.markdown('<div class="dot-xuat-container">', unsafe_allow_html=True)
             st.subheader("🆘 3. ĐỘT XUẤT (Ưu tiên Xã > Ấp)")
-            if 'n_dx' not in st.session_state: st.session_state.n_dx = 1
-            if st.button("➕ Thêm việc"): st.session_state.n_dx += 1
+            
+            # Lọc riêng các bản ghi đột xuất đã lưu của ngày hôm đó
+            saved_dx = current_saved[current_saved['LoaiNhiemVu'].str.startswith('ĐX: ', na=False)]
+            
+            # Group để tìm các công việc đột xuất độc nhất kèm theo điểm số tương ứng
+            if not saved_dx.empty:
+                unique_tasks = saved_dx.groupby('LoaiNhiemVu').agg({'Diem': 'first'}).reset_index()
+                unique_tasks['TenViec'] = unique_tasks['LoaiNhiemVu'].str.replace('ĐX: ', '', regex=False)
+                default_n_dx = len(unique_tasks)
+            else:
+                unique_tasks = pd.DataFrame(columns=['LoaiNhiemVu', 'Diem', 'TenViec'])
+                default_n_dx = 1
+
+            # Khởi tạo hoặc duy trì số lượng ô công việc đột xuất trong session_state
+            if 'n_dx' not in st.session_state: 
+                st.session_state.n_dx = default_n_dx
+
+            # Nút Thêm/Bớt việc đột xuất giống ca tuần tra
+            c_btn1, c_btn2, _ = st.columns([2, 2, 8])
+            with c_btn1:
+                if st.button("➕ Thêm việc", use_container_width=True): 
+                    st.session_state.n_dx += 1
+            with c_btn2:
+                if st.button("➖ Bớt việc", use_container_width=True) and st.session_state.n_dx > 1:
+                    st.session_state.n_dx -= 1
+
             dx_res = []
             for i in range(st.session_state.n_dx):
+                # Thiết lập giá trị mặc định nếu dữ liệu đã tồn tại trong DB
+                val_name = ""
+                val_points = 1
+                val_selected_mem = []
+
+                if i < len(unique_tasks):
+                    row_task = unique_tasks.iloc[i]
+                    val_name = row_task['TenViec']
+                    val_points = int(row_task['Diem'])
+                    # Lấy danh sách quân số đã làm việc này
+                    saved_members = saved_dx[saved_dx['LoaiNhiemVu'] == row_task['LoaiNhiemVu']]['HoTen'].tolist()
+                    val_selected_mem = [d for d in pool_dx["Display"] if d.split(" (")[0] in saved_members]
+
                 cx1, cx2, cx3 = st.columns([3, 5, 1])
-                with cx1: t_n = st.text_input(f"Việc {i+1}", key=f"dxn_{i}")
-                with cx2: t_m = st.multiselect(f"Quân {i+1}", pool_dx["Display"], key=f"dxm_{i}")
-                with cx3: t_d = st.number_input(f"Đ", 1, 10, 1, key=f"dxd_{i}")
+                with cx1: t_n = st.text_input(f"Việc {i+1}", value=val_name, key=f"dxn_{i}")
+                with cx2: t_m = st.multiselect(f"Quân {i+1}", pool_dx["Display"], default=val_selected_mem, key=f"dxm_{i}")
+                with cx3: t_d = st.number_input(f"Đ", 1, 10, value=val_points, key=f"dxd_{i}")
+                
                 if t_n and t_m:
-                    for m in t_m: dx_res.append({"HoTen": m.split(" (")[0], "LoaiNhiemVu": f"ĐX: {t_n}", "Gio": "Đột xuất", "Diem": t_d})
+                    for m in t_m: 
+                        dx_res.append({"HoTen": m.split(" (")[0], "LoaiNhiemVu": f"ĐX: {t_n}", "Gio": "Đột xuất", "Diem": t_d})
             st.markdown('</div>', unsafe_allow_html=True)
 
             if st.button("💾 LƯU PHƯƠNG ÁN", use_container_width=True, type="primary"):
@@ -203,7 +254,7 @@ try:
             is_night = n in night_cax_list
             st.markdown(f'<div class="{"morning-night-card" if is_night else "morning-card"}"><div class="name-tag">{n} {"🌙" if is_night else ""}</div><div class="ap-tag">Ấp: {dict_ap.get(n)}</div></div>', unsafe_allow_html=True)
     with c_d:
-        st.markdown("<p style='color:#EA580C; font-weight:bold; text-align:center;'>🌙 TRỰC ĐÊM XÃ</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#EA580C; font-weight:bold; text-align:center;'>🌙 TRỰC ĐÊM Xã</p>", unsafe_allow_html=True)
         for n in night_cax_list: st.markdown(f'<div class="night-cax-card"><div class="name-tag">{n}</div><div class="ap-tag">Ấp: {dict_ap.get(n)}</div></div>', unsafe_allow_html=True)
     with c_a:
         st.markdown("<p style='color:#16A34A; font-weight:bold; text-align:center;'>🏡 TRỰC ẤP</p>", unsafe_allow_html=True)
@@ -211,3 +262,5 @@ try:
 
 except Exception as e:
     st.error(f"Lỗi: {e}")
+
+```
