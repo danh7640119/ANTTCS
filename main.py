@@ -35,13 +35,13 @@ except Exception:
     st.error("⚠️ LỖI CẤU HÌNH: Kiểm tra lại Streamlit Secrets!")
     st.stop()
 
-# Danh sách nữ đồng chí
+# Danh sách nữ đồng chí miễn gác đêm / tuần tra
 LIST_NU = [
     "Ngô Thị Hồng Thắm", "Nguyễn Thị Thanh Tuyền", "Trần Thị Lan Phương",
     "Huỳnh Thụy Thanh Nhi", "Đinh Thị Mai Quyền", "Vũ Thị Thơm", "Lê Thanh Tuyền"
 ]
 
-# --- CSS GIAO DIỆN NGUYÊN BẢN ---
+# --- CSS GIAO DIỆN NGUYÊN BẢN (KHỐI THẺ MÀU & BADGE) ---
 st.markdown("""
 <style>
     .card-sang {
@@ -91,7 +91,7 @@ st.markdown("""
         border: 1.5px solid #86efac;
         border-radius: 12px;
         padding: 14px;
-        margin: 10px 0;
+        margin: 12px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -222,7 +222,7 @@ with tab_view:
         st.info("Chưa có dữ liệu phân công cho ngày này.")
 
 # ==========================================
-# TAB 2: PHÂN CÔNG CHI TIẾT & CHATBOT THU GỌN
+# TAB 2: PHÂN CÔNG CHI TIẾT & TRỢ LÝ AI
 # ==========================================
 with tab_manage:
     if not is_admin:
@@ -262,16 +262,17 @@ with tab_manage:
 
         if "manage_chat" not in st.session_state:
             st.session_state.manage_chat = [
-                {"role": "assistant", "content": f"Chào chỉ huy, tôi đã sẵn sàng hỗ trợ sắp xếp lịch trực cho **{selected_day_label}**. Ca tuần tra sẽ được gợi ý tiêu chuẩn 4 người/ca, hoặc chỉ huy có thể yêu cầu số lượng cụ thể."}
+                {"role": "assistant", "content": f"Chào chỉ huy, tôi đã sẵn sàng sắp xếp lịch trực cho **{selected_day_label}**. Bấm nút trên hoặc nhập yêu cầu điều chỉnh ca theo ý muốn."}
             ]
 
-        chat_container = st.container(height=280)
+        # Khung chatbox thu gọn có thanh cuộn riêng
+        chat_container = st.container(height=260)
         with chat_container:
             for msg in st.session_state.manage_chat:
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
 
-        user_query = st.chat_input("Nhập yêu cầu (VD: Tối nay ca 1 cần 5 người, ca 2 chỉ 3 người; xếp Tùng gác đầu...)")
+        user_query = st.chat_input("Nhập yêu cầu (VD: Tối nay ca 1 cần 5 người, ca 2 chỉ 3 người; ưu tiên Tùng gác sáng...)")
         
         active_prompt = None
         if btn_quick_auto:
@@ -304,9 +305,9 @@ with tab_manage:
 
                                 YÊU CẦU CỦA CHỈ HUY: "{active_prompt}"
 
-                                NGUYÊN TẮC:
+                                NGUYÊN TẮC PHÂN CÔNG:
                                 1. 4 ca gác đầu ưu tiên lấy từ Trực Sáng. Các ca sau lấy từ Trực Đêm Xã.
-                                2. TUẦN TRA C1 & C2: Mặc định gợi ý 4 người/ca từ Trực Đêm Xã. TUY NHIÊN nếu chỉ huy yêu cầu số lượng khác (ví dụ 3 người hoặc 5 người), hãy tuân thủ chính xác yêu cầu của chỉ huy.
+                                2. TUẦN TRA C1 & C2: Mặc định gợi ý 4 người/ca từ Trực Đêm Xã (trừ khi chỉ huy chỉ định số lượng khác).
                                 3. Trả lời tóm tắt ngắn gọn và KÈM THEO KHỐI JSON:
                                 ```json
                                 {{
@@ -328,7 +329,7 @@ with tab_manage:
                                     st.session_state["pending_ai_proposal"] = parsed_data
                                     display_text = reply_text.replace(json_match.group(0), "").strip()
                                     if not display_text:
-                                        display_text = "Đã tính toán xong phương án trực theo yêu cầu. Mời chỉ huy bấm **Phê Duyệt** bên dưới."
+                                        display_text = "Đã tính toán xong phương án trực tối ưu. Mời chỉ huy kiểm tra bảng tóm tắt và bấm **Phê Duyệt** bên dưới."
                                     st.markdown(display_text)
                                     st.session_state.manage_chat.append({"role": "assistant", "content": display_text})
                                 else:
@@ -336,51 +337,78 @@ with tab_manage:
                                     st.session_state.manage_chat.append({"role": "assistant", "content": reply_text})
                             except Exception as err:
                                 st.error(f"Lỗi AI: {err}")
-            st.rerun()
 
-        # KHỐI PHÊ DUYỆT ĐỀ XUẤT (GÁN VÀO FORM)
+        # ----------------------------------------------------
+        # KHỐI PHÊ DUYỆT ĐỀ XUẤT (HIỆN RÕ CÁC PHƯƠNG ÁN ĐỀ XUẤT)
+        # ----------------------------------------------------
         if "pending_ai_proposal" in st.session_state and st.session_state["pending_ai_proposal"]:
             proposal = st.session_state["pending_ai_proposal"]
+            ai_g = proposal.get("gac_cong", {})
+            ai_c1_prop = proposal.get("tuan_tra_c1", [])
+            ai_c2_prop = proposal.get("tuan_tra_c2", [])
+            
             st.markdown("""
             <div class="ai-box">
-                <b style="color:#15803d; font-size:15px;">📋 ĐỀ XUẤT PHÂN CÔNG ĐANG CHỜ PHÊ DUYỆT</b><br>
-                <span style="color:#166534; font-size:13px;">Bấm 'Phê Duyệt' để áp dụng phương án vào form bên dưới. Bạn vẫn có thể tùy ý thêm bớt người trước khi lưu.</span>
+                <b style="color:#15803d; font-size:16px;">📋 PHƯƠNG ÁN ĐỀ XUẤT TỪ AI ĐANG CHỜ PHÊ DUYỆT</b><br>
+                <span style="color:#166534; font-size:13px;">Kiểm tra danh sách gợi ý dưới đây. Bấm <b>Phê Duyệt</b> để hệ thống tự động điền vào từng ô phân công.</span>
             </div>
             """, unsafe_allow_html=True)
             
-            app_col1, app_col2 = st.columns([2, 5])
+            # Hiển thị tóm tắt trực quan phương án để chỉ huy xem trước
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.markdown("**🛡️ Gác cổng gợi ý:**")
+                gac_summary = [f"- **{gio}**: {ten}" for gio, ten in ai_g.items()]
+                st.markdown("\n".join(gac_summary) if gac_summary else "_Không có dữ liệu_")
+            with col_p2:
+                st.markdown("**🚔 Tuần tra đêm gợi ý:**")
+                st.markdown(f"- **Ca 1 (18-22h) [{len(ai_c1_prop)} đ/c]:** {', '.join(ai_c1_prop)}")
+                st.markdown(f"- **Ca 2 (22-02h) [{len(ai_c2_prop)} đ/c]:** {', '.join(ai_c2_prop)}")
+
+            app_col1, app_col2, _ = st.columns([3, 2, 5])
             with app_col1:
                 if st.button("✅ PHÊ DUYỆT & ĐIỀN VÀO FORM", type="primary", use_container_width=True):
-                    st.session_state["applied_ai_plan"] = proposal
-                    
-                    # 1. Cập nhật các selectbox gác cổng
-                    ai_gac = proposal.get("gac_cong", {})
+                    # 1. Cập nhật trực tiếp widget key của các Selectbox gác cổng
                     for i, gio in enumerate(list_gio):
                         p_df = pool_s if i < 4 else pool_d
-                        t_name = ai_gac.get(gio)
+                        t_name = ai_g.get(gio)
                         if t_name and not p_df.empty:
-                            matched = p_df[p_df["HoTen"] == t_name]
+                            # So khớp tìm tên tương ứng
+                            matched = p_df[p_df["HoTen"].astype(str).str.strip() == str(t_name).strip()]
+                            if matched.empty:
+                                matched = p_df[p_df["Display"].astype(str).str.startswith(str(t_name).strip())]
                             if not matched.empty:
                                 st.session_state[f"gac_{gio}_{selected_day}"] = matched.iloc[0]["Display"]
 
-                    # 2. Cập nhật các multiselect tuần tra
-                    ai_c1 = proposal.get("tuan_tra_c1", [])
-                    ai_c2 = proposal.get("tuan_tra_c2", [])
-                    st.session_state[f"tt1_val_{selected_day}"] = [d for d in pool_d["Display"] if d.split(" (")[0] in ai_c1]
-                    st.session_state[f"tt2_val_{selected_day}"] = [d for d in pool_d["Display"] if d.split(" (")[0] in ai_c2]
+                    # 2. Cập nhật trực tiếp widget key của Multiselect Tuần tra
+                    tt1_matched = []
+                    for name in ai_c1_prop:
+                        m = pool_d[pool_d["HoTen"].astype(str).str.strip() == str(name).strip()]
+                        if not m.empty:
+                            tt1_matched.append(m.iloc[0]["Display"])
+                    st.session_state[f"ms_tt1_{selected_day}"] = tt1_matched
+
+                    tt2_matched = []
+                    for name in ai_c2_prop:
+                        m = pool_d[pool_d["HoTen"].astype(str).str.strip() == str(name).strip()]
+                        if not m.empty:
+                            tt2_matched.append(m.iloc[0]["Display"])
+                    st.session_state[f"ms_tt2_{selected_day}"] = tt2_matched
 
                     del st.session_state["pending_ai_proposal"]
-                    st.success("✅ Đã áp dụng đề xuất vào form!")
+                    st.success("✅ Đã phê duyệt và điền đầy đủ dữ liệu vào các ô bên dưới!")
                     st.rerun()
+
             with app_col2:
-                if st.button("❌ Bỏ qua", use_container_width=True):
+                if st.button("❌ Bỏ qua đề xuất này", use_container_width=True):
                     del st.session_state["pending_ai_proposal"]
                     st.rerun()
 
         st.divider()
 
-        applied_plan = st.session_state.get("applied_ai_plan", {})
-
+        # ----------------------------------------------------
+        # FORM PHÂN CÔNG CHI TIẾT
+        # ----------------------------------------------------
         # 1. GÁC CỔNG
         st.subheader("🛡️ 1. GÁC CỔNG")
         g_res = []
@@ -389,58 +417,55 @@ with tab_manage:
             p_df = pool_s if i < 4 else pool_d
             saved = current_saved[(current_saved['Gio'] == gio) & (current_saved['LoaiNhiemVu'] == 'Gác cổng')]
 
-            target_name = None
-            if not saved.empty:
-                target_name = saved.iloc[0]['HoTen']
-            elif applied_plan and "gac_cong" in applied_plan and gio in applied_plan["gac_cong"]:
-                target_name = applied_plan["gac_cong"][gio]
-
-            idx = 0
-            if target_name and not p_df.empty:
-                m = p_df[p_df['HoTen'] == target_name]
-                if not m.empty:
-                    idx = p_df.index.get_loc(m.index[0])
+            # Nếu widget chưa có trong session_state thì khởi tạo
+            widget_key = f"gac_{gio}_{selected_day}"
+            if widget_key not in st.session_state:
+                idx = 0
+                if not saved.empty and not p_df.empty:
+                    saved_name = saved.iloc[0]['HoTen']
+                    m = p_df[p_df['HoTen'].astype(str).str.strip() == str(saved_name).strip()]
+                    if not m.empty:
+                        idx = p_df.index.get_loc(m.index[0])
+                st.session_state[widget_key] = p_df["Display"].iloc[idx] if not p_df.empty else ""
 
             with (cg1 if i % 2 == 0 else cg2):
                 if not p_df.empty:
+                    # Đảm bảo giá trị session_state hợp lệ trong options
+                    if st.session_state[widget_key] not in p_df["Display"].values:
+                        st.session_state[widget_key] = p_df["Display"].iloc[0]
                     sel = st.selectbox(
                         f"Ca {gio}",
                         p_df["Display"],
-                        index=idx,
-                        key=f"gac_{gio}_{selected_day}"
+                        key=widget_key
                     )
                     g_res.append({"HoTen": sel.split(" (")[0], "LoaiNhiemVu": "Gác cổng", "Gio": gio, "Diem": 1})
 
-        # 2. TUẦN TRA (TÙY BIẾN LINH HOẠT - CÓ THỂ TĂNG GIẢM NGƯỜI TÙY Ý)
-        st.subheader("🚔 2. TUẦN TRA (Gợi ý tiêu chuẩn 4 người - Có thể tùy chỉnh)")
+        # 2. TUẦN TRA (TÙY BIẾN LINH HOẠT THEO YÊU CẦU)
+        st.subheader("🚔 2. TUẦN TRA (Mặc định gợi ý 4 người - Có thể thêm/bớt tùy ý)")
         
-        # Khởi tạo giá trị mặc định cho tuần tra nếu chưa có trong session_state
-        if f"tt1_val_{selected_day}" not in st.session_state:
+        # Khởi tạo widget key nếu chưa có
+        tt1_key = f"ms_tt1_{selected_day}"
+        if tt1_key not in st.session_state:
             def_tt1 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C1']['HoTen'].tolist()
-            if not def_tt1 and "tuan_tra_c1" in applied_plan:
-                def_tt1 = applied_plan["tuan_tra_c1"]
-            st.session_state[f"tt1_val_{selected_day}"] = [d for d in pool_d["Display"] if d.split(" (")[0] in def_tt1]
+            st.session_state[tt1_key] = [d for d in pool_d["Display"] if d.split(" (")[0] in def_tt1]
 
-        if f"tt2_val_{selected_day}" not in st.session_state:
+        tt2_key = f"ms_tt2_{selected_day}"
+        if tt2_key not in st.session_state:
             def_tt2 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C2']['HoTen'].tolist()
-            if not def_tt2 and "tuan_tra_c2" in applied_plan:
-                def_tt2 = applied_plan["tuan_tra_c2"]
-            st.session_state[f"tt2_val_{selected_day}"] = [d for d in pool_d["Display"] if d.split(" (")[0] in def_tt2]
+            st.session_state[tt2_key] = [d for d in pool_d["Display"] if d.split(" (")[0] in def_tt2]
 
         ct1, ct2 = st.columns(2)
         with ct1:
             tt1 = st.multiselect(
                 "Ca 1 (18-22h):",
                 pool_d["Display"],
-                default=st.session_state[f"tt1_val_{selected_day}"],
-                key=f"ms_tt1_{selected_day}"
+                key=tt1_key
             )
         with ct2:
             tt2 = st.multiselect(
                 "Ca 2 (22-02h):",
                 pool_d["Display"],
-                default=st.session_state[f"tt2_val_{selected_day}"],
-                key=f"ms_tt2_{selected_day}"
+                key=tt2_key
             )
 
         # 3. ĐỘT XUẤT
@@ -506,10 +531,7 @@ with tab_manage:
                 ], ignore_index=True)
 
                 conn.update(worksheet="NhiemVu", data=df_save)
-                
                 st.session_state["df_history"] = df_save
-                if "applied_ai_plan" in st.session_state:
-                    del st.session_state["applied_ai_plan"]
                 
                 st.success("✅ Đã lưu phương án thành công!")
                 st.rerun()
