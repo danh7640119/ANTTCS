@@ -99,17 +99,29 @@ st.markdown("""
 
 # --- 2. HÀM DÒ TÌM MODEL GEMINI CHÍNH XÁC (TRÁNH LỖI 404) ---
 def get_working_gemini_model():
+    # 1. Thử gọi trực tiếp model mới nhất theo đúng yêu cầu của Google
+    for model_name in ["models/gemini-3.6-flash", "gemini-3.6-flash", "models/gemini-3.5-flash", "gemini-3.5-flash"]:
+        try:
+            m = genai.GenerativeModel(model_name)
+            return m
+        except Exception:
+            continue
+
+    # 2. Nếu không được, tự động quét danh sách model khả dụng của tài khoản
     try:
         supported = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for candidate in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
+        # Ưu tiên các dòng 3.6, 3.5 trước
+        for candidate in ["3.6-flash", "3.5-flash", "3.1", "flash"]:
             for m_name in supported:
-                if candidate in m_name:
+                if candidate in m_name and "2.5" not in m_name and "1.5" not in m_name:
                     return genai.GenerativeModel(m_name)
         if supported:
             return genai.GenerativeModel(supported[0])
     except Exception:
         pass
-    return genai.GenerativeModel("gemini-1.5-flash-latest")
+
+    # Dự phòng mặc định
+    return genai.GenerativeModel("models/gemini-3.6-flash")
 
 # --- 3. LOAD VÀ CACHE DỮ LIỆU (TỐI ƯU TRÁNH RATE-LIMIT GOOGLE) ---
 @st.cache_data(ttl=60, show_spinner=False)
