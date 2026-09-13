@@ -6,13 +6,30 @@ import google.generativeai as genai
 import json
 import re
 
-# --- 1. CẤU HÌNH & BẢO MẬT ---
-st.set_page_config(page_title="Điều hành ANTT Bắc Tân Uyên", layout="wide")
+# --- 1. CẤU HÌNH TRANG & BẢO MẬT ---
+st.set_page_config(page_title="Điều hành ANTT Bắc Tân Uyên", layout="wide", page_icon="🛡️")
+
+# --- HÀM TÌM KEY THÔNG MINH TRONG SECRETS (TRÁNH MỌI LỖI ĐỊNH DẠNG) ---
+def get_gemini_key():
+    if "GEMINI_API_KEY" in st.secrets:
+        return str(st.secrets["GEMINI_API_KEY"]).strip().strip('"').strip("'")
+    for sec_name in st.secrets:
+        sec = st.secrets[sec_name]
+        if isinstance(sec, dict) and "GEMINI_API_KEY" in sec:
+            return str(sec["GEMINI_API_KEY"]).strip().strip('"').strip("'")
+    for k, v in st.secrets.items():
+        if isinstance(v, str) and v.strip().startswith("AIza"):
+            return v.strip().strip('"').strip("'")
+        if isinstance(v, dict):
+            for sub_k, sub_v in v.items():
+                if isinstance(sub_v, str) and sub_v.strip().startswith("AIza"):
+                    return sub_v.strip().strip('"').strip("'")
+    return ""
 
 try:
     ADMIN_PASSWORD = st.secrets["auth"]["admin_password"]
     URL_SHEET = st.secrets["connections"]["gsheets"]["spreadsheet"]
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+    GEMINI_API_KEY = get_gemini_key()
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
 except Exception:
@@ -25,7 +42,7 @@ LIST_NU = [
     "Huỳnh Thụy Thanh Nhi", "Đinh Thị Mai Quyền", "Vũ Thị Thơm", "Lê Thanh Tuyền"
 ]
 
-# --- PHỤC HỒI CSS GIAO DIỆN NGUYÊN BẢN (KHỐI THẺ MÀU & BADGE) ---
+# --- PHỤC HỒI CSS GIAO DIỆN NGUYÊN BẢN (CARD MÀU VÀ KHỐI TRỢ LÝ) ---
 st.markdown("""
 <style>
     .card-sang {
@@ -70,17 +87,38 @@ st.markdown("""
         padding: 2px 8px;
         border-radius: 10px;
     }
+    .ai-box {
+        background: #f0fdf4;
+        border: 1.5px solid #86efac;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. TỐI ƯU LOAD (CACHE 60 GIÂY ĐỂ TRÁNH RATE-LIMIT GOOGLE) ---
+# --- 2. HÀM DÒ TÌM MODEL GEMINI CHÍNH XÁC (TRÁNH LỖI 404) ---
+def get_working_gemini_model():
+    try:
+        supported = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        for candidate in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
+            for m_name in supported:
+                if candidate in m_name:
+                    return genai.GenerativeModel(m_name)
+        if supported:
+            return genai.GenerativeModel(supported[0])
+    except Exception:
+        pass
+    return genai.GenerativeModel("gemini-1.5-flash-latest")
+
+# --- 3. LOAD VÀ CACHE DỮ LIỆU (TỐI ƯU TRÁNH RATE-LIMIT GOOGLE) ---
 @st.cache_data(ttl=60, show_spinner=False)
 def load_data(_conn, sheet_url, worksheet):
     return _conn.read(spreadsheet=sheet_url, worksheet=worksheet)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Đọc dữ liệu quân số
+# Đọc quân số từ sheet 'luutru'
 df_raw = load_data(conn, URL_SHEET, "luutru")
 df_raw = df_raw.iloc[2:].copy()
 cols = ["Tuan", "Ap", "HoTen"]
@@ -92,7 +130,7 @@ df_raw.columns = cols[:len(df_raw.columns)]
 df_mem = df_raw.dropna(subset=['HoTen']).copy()
 dict_ap = dict(zip(df_mem['HoTen'], df_mem['Ap']))
 
-# Quản lý df_history trong session_state để lưu xong hiển thị ngay
+# Quản lý df_history trong session_state để lưu là hiện ngay
 if "df_history" not in st.session_state:
     df_h = load_data(conn, URL_SHEET, "NhiemVu")
     if df_h.empty:
@@ -103,7 +141,7 @@ if "df_history" not in st.session_state:
 
 df_history = st.session_state["df_history"]
 
-# --- 3. BÓC TÁCH NGÀY ĐỂ HIỂN THỊ CHUẨN XÁC DỄ NHẬN BIẾT ---
+# --- 4. TÍNH TOÁN NGÀY THỰC TẾ DỄ NHẬN BIẾT ---
 def parse_week_start(week_str):
     today = date.today()
     match = re.search(r"\((\d{1,2})/(\d{1,2})\s*-\s*(\d{1,2})/(\d{1,2})\)", str(week_str))
@@ -113,7 +151,6 @@ def parse_week_start(week_str):
     return None
 
 list_tuan = df_mem['Tuan'].dropna().unique().tolist()[::-1]
-
 default_tuan_idx = 0
 today = date.today()
 for i, w in enumerate(list_tuan):
@@ -122,7 +159,7 @@ for i, w in enumerate(list_tuan):
         default_tuan_idx = i
         break
 
-# --- 4. SIDEBAR ---
+# --- 5. SIDEBAR ---
 st.sidebar.header("🔐 HỆ THỐNG ĐIỀU HÀNH")
 access_key = st.sidebar.text_input("Mã điều hành:", type="password")
 is_admin = (access_key == ADMIN_PASSWORD)
@@ -130,7 +167,7 @@ is_admin = (access_key == ADMIN_PASSWORD)
 selected_week = st.sidebar.selectbox("Tuần trực:", list_tuan, index=default_tuan_idx)
 week_start_date = parse_week_start(selected_week)
 
-# Tạo danh sách ngày trực hiển thị rõ ngày/tháng thực tế
+# Tạo danh sách ngày trực rõ ràng ngày/tháng
 day_options = []
 day_to_actual_date = {}
 for i, d_name in enumerate(days_vn):
@@ -145,7 +182,7 @@ for i, d_name in enumerate(days_vn):
 
 cur_weekday = datetime.now().weekday()
 selected_day_label = st.sidebar.selectbox("Ngày trực:", day_options, index=cur_weekday)
-selected_day = selected_day_label.split(" (")[0] # Giữ đúng "Thứ 2", "Thứ 3",... để lọc
+selected_day = selected_day_label.split(" (")[0]
 actual_date_str = day_to_actual_date[selected_day_label]
 
 st.sidebar.divider()
@@ -161,8 +198,8 @@ morning_list = df_curr_week[df_curr_week[f"{d_code}_N"].astype(str).str.lower().
 night_cax_list = df_curr_week[df_curr_week[f"{d_code}_D_CAX"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 night_ap_list = df_curr_week[df_curr_week[f"{d_code}_D_Ap"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 
-# --- 5. TABS ĐIỀU HÀNH ---
-tab_view, tab_manage, tab_ai_chat, tab_attendance = st.tabs(["📋 XEM NHIỆM VỤ", "⚙️ PHÂN CÔNG CHI TIẾT", "🤖 TRỢ LÝ AI", "✅ ĐIỂM DANH"])
+# --- 6. GIAO DIỆN TABS ---
+tab_view, tab_manage, tab_attendance = st.tabs(["📋 XEM NHIỆM VỤ", "⚙️ PHÂN CÔNG & TRỢ LÝ AI", "✅ ĐIỂM DANH"])
 
 # ==========================================
 # TAB 1: XEM NHIỆM VỤ
@@ -185,11 +222,11 @@ with tab_view:
         st.info("Chưa có dữ liệu phân công cho ngày này.")
 
 # ==========================================
-# TAB 2: PHÂN CÔNG CHI TIẾT (TÍCH HỢP GEMINI + LƯU TỨC THÌ)
+# TAB 2: PHÂN CÔNG CHI TIẾT & CHATBOT DUYỆT TỰ ĐỘNG
 # ==========================================
 with tab_manage:
     if not is_admin:
-        st.warning("Vui lòng nhập Mã điều hành.")
+        st.warning("🔒 Vui lòng nhập Mã điều hành tại thanh bên trái để sử dụng phân công.")
     else:
         current_saved = df_history[(df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day)]
         day_summary = current_saved.groupby("HoTen")["Diem"].sum().reset_index() if not current_saved.empty else pd.DataFrame(columns=["HoTen", "Diem"])
@@ -214,54 +251,132 @@ with tab_manage:
         pool_d = get_pool(night_cax_list)
         pool_dx = get_pool(list(set(morning_list + night_cax_list + night_ap_list)), is_dx=True)
 
-        # AI TRỢ LÝ ĐIỀN FORM TỰ ĐỘNG
-        with st.expander("✨ Bấm để Gemini tự động xếp lịch vào các ô", expanded=False):
-            ai_c1, ai_c2 = st.columns([4, 1])
-            with ai_c1:
-                ai_req = st.text_input("Ghi chú đặc biệt cho AI (nếu có):", placeholder="VD: Tùng gác ca đầu, tối tuần tra gồm có Nam và Xinh...")
-            with ai_c2:
-                st.write("")
-                st.write("")
-                btn_ai_schedule = st.button("🚀 Xếp Lịch", use_container_width=True)
+        # ----------------------------------------------------
+        # KHU VỰC TRỢ LÝ AI CHATBOX & PHÊ DUYỆT TRỰC TIẾP
+        # ----------------------------------------------------
+        st.markdown("### 🤖 TRỢ LÝ ĐIỀU HÀNH & XẾP LỊCH TỰ ĐỘNG (GEMINI)")
+        
+        # Nút yêu cầu nhanh có sẵn trên đầu
+        btn_quick_auto = st.button("⚡ Yêu cầu AI tự sắp lịch hôm nay", help="Bấm để AI tự tính toán chia đều quân số vào các ca")
 
-            if btn_ai_schedule:
-                if not GEMINI_API_KEY:
-                    st.error("Chưa cấu hình GEMINI_API_KEY trong Secrets!")
-                else:
-                    with st.spinner("AI đang tính toán phân bổ đều các ca..."):
+        # Lưu trữ lịch sử trao đổi với Trợ lý AI
+        if "manage_chat" not in st.session_state:
+            st.session_state.manage_chat = []
+
+        # Hiển thị các tin nhắn trao đổi
+        for msg in st.session_state.manage_chat:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+        # Ô nhập câu hỏi / yêu cầu của người dùng
+        user_query = st.chat_input("Hỏi lịch hoặc ra lệnh cho AI (VD: Xếp lại ca gác cho Tùng gác đầu, thêm 1 ca bảo vệ hiện trường...)")
+        
+        # Xử lý khi bấm nút nhanh hoặc gõ chat
+        active_prompt = None
+        if btn_quick_auto:
+            active_prompt = "Hãy tự động sắp xếp toàn bộ lịch trực hôm nay công bằng và tối ưu nhất."
+        elif user_query:
+            active_prompt = user_query
+
+        if active_prompt:
+            st.session_state.manage_chat.append({"role": "user", "content": active_prompt})
+            with st.chat_message("user"):
+                st.markdown(active_prompt)
+
+            if not GEMINI_API_KEY:
+                st.error("Chưa cấu hình GEMINI_API_KEY trong Secrets!")
+            else:
+                with st.chat_message("assistant"):
+                    with st.spinner("AI đang phân tích yêu cầu và tính toán phân bổ..."):
                         try:
-                            model = genai.GenerativeModel("gemini-1.5-flash")
-                            prompt_schedule = f"""
-                            Bạn là chỉ huy phân công lịch trực ANTTCS Bắc Tân Uyên.
-                            Ngày: {selected_day_label}.
-                            QUÂN SỐ:
-                            - Trực sáng: {morning_list}
-                            - Trực đêm Công an Xã: {night_cax_list}
-                            - Trực đêm Ấp: {night_ap_list}
+                            model = get_working_gemini_model()
+                            
+                            prompt_system = f"""
+                            Bạn là Trợ lý Điều hành ANTTCS Bắc Tân Uyên.
+                            Ngày đang chọn: {selected_day_label} ({actual_date_str}).
+                            QUÂN SỐ TRỰC HÔM NAY:
+                            - Sáng: {morning_list}
+                            - Đêm Công an Xã: {night_cax_list}
+                            - Đêm Ấp: {night_ap_list}
                             - Ca gác: {list_gio}
-                            - Miễn trực: {LIST_NU}
-                            - Lưu ý từ chỉ huy: {ai_req}
-                            
-                            YÊU CẦU:
-                            - 4 ca đầu lấy từ trực Sáng, các ca sau lấy từ trực Đêm Xã.
-                            - Tuần tra C1: 3-4 người từ trực đêm Xã.
-                            - Tuần tra C2: 3-4 người từ trực đêm Xã.
-                            
-                            TRẢ VỀ DUY NHẤT JSON:
+                            - Miễn trực (Nữ): {LIST_NU}
+
+                            DỮ LIỆU ĐÃ PHÂN CÔNG HIỆN TẠI (NẾU CÓ):
+                            {current_saved.to_string(index=False)}
+
+                            YÊU CẦU TỪ NGƯỜI DÙNG: "{active_prompt}"
+
+                            Nhiệm vụ của bạn:
+                            1. Trả lời tóm tắt phương án bằng văn bản dễ hiểu.
+                            2. NẾU người dùng yêu cầu xếp lịch / điều chỉnh ca / chia quân số, HÃY TRẢ VỀ THÊM KHỐI JSON nằm trong thẻ ```json ... ``` theo cấu trúc:
                             {{
-                              "gac_cong": {{"ca_gio": "Họ và tên"}},
-                              "tuan_tra_c1": ["Họ tên 1", "Họ tên 2"],
-                              "tuan_tra_c2": ["Họ tên 3", "Họ tên 4"]
+                               "gac_cong": {{"ca_gio": "Họ và tên"}},
+                               "tuan_tra_c1": ["Họ tên 1", "Họ tên 2"],
+                               "tuan_tra_c2": ["Họ tên 3", "Họ tên 4"],
+                               "dot_xuat": [{{"ten_viec": "Tên việc", "quan_so": ["Họ tên"], "diem": 1}}]
                             }}
+                            (Lưu ý: 4 ca gác đầu ưu tiên lấy từ Sáng; các ca sau lấy từ Đêm Xã. Tuần tra C1 và C2 lấy từ Đêm Xã).
                             """
-                            res = model.generate_content(prompt_schedule, generation_config={"response_mime_type": "application/json"})
-                            st.session_state["ai_schedule"] = json.loads(res.text)
-                            st.success("✅ Đã tạo lịch xong! Hãy kiểm tra các ô bên dưới.")
-                        except Exception as e:
-                            st.error(f"Lỗi AI: {e}")
+                            response = model.generate_content(prompt_system)
+                            reply_text = response.text
+                            
+                            # Tìm xem có JSON đề xuất không
+                            json_match = re.search(r"```json\s*(\{.*?\})\s*```", reply_text, re.DOTALL)
+                            if not json_match:
+                                json_match = re.search(r"(\{[\s\S]*\"gac_cong\"[\s\S]*\})", reply_text)
 
-        ai_data = st.session_state.get("ai_schedule", {})
+                            if json_match:
+                                try:
+                                    parsed_data = json.loads(json_match.group(1))
+                                    st.session_state["pending_ai_proposal"] = parsed_data
+                                    # Cắt bỏ phần JSON thô khỏi tin nhắn hiển thị cho đẹp
+                                    display_text = reply_text.replace(json_match.group(0), "").strip()
+                                    if not display_text:
+                                        display_text = "Tôi đã lập xong phương án phân công tối ưu cho ngày hôm nay."
+                                    st.markdown(display_text)
+                                    st.session_state.manage_chat.append({"role": "assistant", "content": display_text})
+                                except Exception:
+                                    st.markdown(reply_text)
+                                    st.session_state.manage_chat.append({"role": "assistant", "content": reply_text})
+                            else:
+                                st.markdown(reply_text)
+                                st.session_state.manage_chat.append({"role": "assistant", "content": reply_text})
+                                
+                        except Exception as err:
+                            st.error(f"Lỗi AI: {err}")
 
+        # KHỐI PHÊ DUYỆT (Giống Google Sheets AI)
+        if "pending_ai_proposal" in st.session_state and st.session_state["pending_ai_proposal"]:
+            proposal = st.session_state["pending_ai_proposal"]
+            st.markdown("""
+            <div class="ai-box">
+                <h4 style="margin:0; color:#15803d;">📋 ĐỀ XUẤT PHÂN CÔNG TỪ AI ĐANG CHỜ PHÊ DUYỆT</h4>
+                <p style="margin:5px 0 10px 0; font-size:14px; color:#166534;">
+                    AI đã tính toán xong danh sách gác và tuần tra. Hãy bấm nút <b>Phê Duyệt</b> bên dưới để tự động điền vào các ô chọn.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            app_col1, app_col2 = st.columns([2, 5])
+            with app_col1:
+                if st.button("✅ PHÊ DUYỆT & ĐIỀN VÀO FORM", type="primary", use_container_width=True):
+                    st.session_state["applied_ai_plan"] = proposal
+                    del st.session_state["pending_ai_proposal"]
+                    st.success("✅ Đã phê duyệt! Toàn bộ ca đã được điền vào form bên dưới.")
+                    st.rerun()
+            with app_col2:
+                if st.button("❌ Bỏ qua đề xuất này", use_container_width=True):
+                    del st.session_state["pending_ai_proposal"]
+                    st.rerun()
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # FORM PHÂN CÔNG CHI TIẾT (ĐÃ KẾT NỐI VỚI KẾT QUẢ PHÊ DUYỆT)
+        # ----------------------------------------------------
+        applied_plan = st.session_state.get("applied_ai_plan", {})
+
+        # 1. GÁC CỔNG
         st.subheader("🛡️ 1. GÁC CỔNG")
         g_res = []
         cg1, cg2 = st.columns(2)
@@ -272,8 +387,8 @@ with tab_manage:
             target_name = None
             if not saved.empty:
                 target_name = saved.iloc[0]['HoTen']
-            elif ai_data and "gac_cong" in ai_data and gio in ai_data["gac_cong"]:
-                target_name = ai_data["gac_cong"][gio]
+            elif applied_plan and "gac_cong" in applied_plan and gio in applied_plan["gac_cong"]:
+                target_name = applied_plan["gac_cong"][gio]
 
             idx = 0
             if target_name and not p_df.empty:
@@ -286,11 +401,14 @@ with tab_manage:
                     sel = st.selectbox(f"Ca {gio}", p_df["Display"], index=idx, key=f"gac_{gio}_{selected_day}")
                     g_res.append({"HoTen": sel.split(" (")[0], "LoaiNhiemVu": "Gác cổng", "Gio": gio, "Diem": 1})
 
+        # 2. TUẦN TRA
         st.subheader("🚔 2. TUẦN TRA")
         def_tt1 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C1']['HoTen'].tolist()
         def_tt2 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C2']['HoTen'].tolist()
-        if not def_tt1 and "tuan_tra_c1" in ai_data: def_tt1 = ai_data["tuan_tra_c1"]
-        if not def_tt2 and "tuan_tra_c2" in ai_data: def_tt2 = ai_data["tuan_tra_c2"]
+        if not def_tt1 and "tuan_tra_c1" in applied_plan: 
+            def_tt1 = applied_plan["tuan_tra_c1"]
+        if not def_tt2 and "tuan_tra_c2" in applied_plan: 
+            def_tt2 = applied_plan["tuan_tra_c2"]
 
         ct1, ct2 = st.columns(2)
         with ct1:
@@ -298,6 +416,7 @@ with tab_manage:
         with ct2:
             tt2 = st.multiselect("Ca 2:", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in def_tt2])
 
+        # 3. ĐỘT XUẤT
         st.subheader("🆘 3. ĐỘT XUẤT (Ưu tiên Xã > Ấp)")
         saved_dx = current_saved[current_saved['LoaiNhiemVu'].str.startswith('ĐX: ', na=False)]
         if not saved_dx.empty:
@@ -342,85 +461,40 @@ with tab_manage:
                     dx_res.append({"HoTen": m.split(" (")[0], "LoaiNhiemVu": f"ĐX: {t_n}", "Gio": "Đột xuất", "Diem": t_d})
 
         st.write("")
-        # NÚT LƯU ĐÃ TỐI ƯU TỐC ĐỘ, KHÔNG BỊ CHẶN BỞI GOOGLE SHEETS
+        # NÚT LƯU PHƯƠNG ÁN (LƯU VÀ CẬP NHẬT TỨC THÌ)
         if st.button("💾 LƯU PHƯƠNG ÁN", use_container_width=True, type="primary"):
-            with st.spinner("Đang lưu vào Google Sheets..."):
+            with st.spinner("Đang lưu dữ liệu vào Google Sheets..."):
                 final = g_res + \
                         [{"HoTen": p.split(" (")[0], "LoaiNhiemVu": "Tuần tra C1", "Gio": "18-22h", "Diem": 1} for p in tt1] + \
                         [{"HoTen": p.split(" (")[0], "LoaiNhiemVu": "Tuần tra C2", "Gio": "22-02h", "Diem": 1} for p in tt2] + \
                         dx_res
                 df_s = pd.DataFrame(final)
-                now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
                 df_s["Tuan"] = selected_week
                 df_s["Ngay"] = selected_day
-                df_s["NgayTao"] = now_str
+                df_s["NgayTao"] = datetime.now().strftime("%d/%m/%Y %H:%M")
                 df_s["NgayThucTe"] = actual_date_str
 
-                # Ghép dữ liệu mới
                 df_save = pd.concat([
                     df_history[~((df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day))],
                     df_s
                 ], ignore_index=True)
 
-                # Ghi lên Google Sheets
                 conn.update(worksheet="NhiemVu", data=df_save)
                 
-                # Tối ưu: Cập nhật trực tiếp State, không xóa toàn bộ cache để tránh bị Google chặn Quota
+                # Cập nhật bộ nhớ đệm session_state trực tiếp, không xóa toàn bộ cache
                 st.session_state["df_history"] = df_save
-                if "ai_schedule" in st.session_state:
-                    del st.session_state["ai_schedule"]
+                if "applied_ai_plan" in st.session_state:
+                    del st.session_state["applied_ai_plan"]
                 
-                st.success("✅ Đã lưu thành công!")
+                st.success("✅ Đã lưu phương án thành công!")
                 st.rerun()
 
 # ==========================================
-# TAB 3: TRỢ LÝ AI TRA CỨU
-# ==========================================
-with tab_ai_chat:
-    st.subheader("💬 Trợ lý Tra cứu Lịch trực (Gemini)")
-    st.caption("AI trả lời chuẩn xác dựa trên dữ liệu đã lưu trong bảng Nhiệm Vụ.")
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    if prompt := st.chat_input("VD: Hôm nay ai gác cổng? Ai tuần tra đêm nay?"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        context_data = df_history[["Tuan", "Ngay", "HoTen", "LoaiNhiemVu", "Gio", "NgayThucTe"]].to_string(index=False)
-        full_p = f"""
-        Bạn là Trợ lý Điều hành ANTTCS Bắc Tân Uyên.
-        Hôm nay là: {selected_day_label}, ngày thực tế: {actual_date_str}.
-        
-        DỮ LIỆU ĐÃ LƯU TRONG BẢNG NHIỆM VỤ:
-        {context_data}
-        
-        Câu hỏi của Chỉ huy/Chiến sĩ: "{prompt}"
-        
-        YÊU CẦU: Trả lời ngắn gọn, chuẩn xác theo phân loại: Gác cổng, Tuần tra hoặc Đột xuất.
-        """
-        with st.chat_message("assistant"):
-            with st.spinner("Đang tra cứu dữ liệu..."):
-                try:
-                    chat_model = genai.GenerativeModel("gemini-1.5-flash")
-                    res = chat_model.generate_content(full_p)
-                    ans = res.text
-                except Exception as e:
-                    ans = f"Lỗi AI: {e}"
-                st.markdown(ans)
-        st.session_state.messages.append({"role": "assistant", "content": ans})
-
-# ==========================================
-# TAB 4: ĐIỂM DANH
+# TAB 3: ĐIỂM DANH
 # ==========================================
 with tab_attendance:
     if not is_admin:
-        st.warning("Vui lòng nhập Mã điều hành.")
+        st.warning("Vui lòng nhập Mã điều hành để điểm danh.")
     else:
         active_names = sorted(list(set(morning_list + night_cax_list + night_ap_list)))
         with st.form("form_att"):
@@ -453,7 +527,7 @@ with tab_attendance:
                     st.success("Đầy đủ quân số!")
 
 # ==========================================
-# PHẦN CUỐI: TỔNG QUAN QUÂN SỐ NGUYÊN BẢN (KHÔI PHỤC CARD MÀU)
+# PHẦN CUỐI: TỔNG QUAN QUÂN SỐ NGUYÊN BẢN (KHỐI THẺ MÀU ĐẶC TRƯNG)
 # ==========================================
 st.divider()
 st.markdown(f"### 👥 TỔNG HỢP QUÂN SỐ THEO LỊCH ĐĂNG KÝ ({selected_day_label})")
@@ -484,7 +558,7 @@ with c_d:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with c_a:
-    st.markdown('<div class="card-dem-ap"><h4>🏡 TRỰC ẤP</h4>', unsafe_allow_html=True)
+    st.markdown('<div class="card-dem-ap"><h4>🏡 TRỰC ĐÊM ẤP</h4>', unsafe_allow_html=True)
     for n in night_ap_list:
         st.markdown(f'''
         <div class="mem-item">
