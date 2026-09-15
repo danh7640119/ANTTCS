@@ -6,7 +6,9 @@ import google.generativeai as genai
 import json
 import re
 
-# --- 1. CẤU HÌNH TRANG & BẢO MẬT ---
+# ==========================================
+# 1. CẤU HÌNH TRANG & BẢO MẬT
+# ==========================================
 st.set_page_config(page_title="Điều hành ANTT Bắc Tân Uyên", layout="wide", page_icon="🛡️")
 
 def get_gemini_key():
@@ -26,124 +28,92 @@ def get_gemini_key():
     return ""
 
 try:
-    ADMIN_PASSWORD = st.secrets["auth"]["admin_password"]
-    URL_SHEET = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    ADMIN_PASSWORD = str(st.secrets["auth"]["admin_password"])
+    URL_SHEET = str(st.secrets["connections"]["gsheets"]["spreadsheet"])
     GEMINI_API_KEY = get_gemini_key()
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-except Exception:
-    st.error("⚠️ LỖI CẤU HÌNH: Kiểm tra lại Streamlit Secrets!")
+except Exception as e:
+    st.error(f"⚠️ LỖI CẤU HÌNH SECRETS: Kiểm tra lại .streamlit/secrets.toml! Chi tiết: {e}")
     st.stop()
 
 # Danh sách nữ đồng chí miễn gác đêm / tuần tra
 LIST_NU = [
-    "Ngô Thị Hồng Thắm", "Nguyễn Thị Thanh Tuyền", "Trần Thị Lan Phương",
+    "Ngô Thị Hồng Thắm", "Nguyễn Thị Thanh Tuyền", "Trần Thị Lan Phương", 
     "Huỳnh Thụy Thanh Nhi", "Đinh Thị Mai Quyền", "Vũ Thị Thơm", "Lê Thanh Tuyền"
 ]
 
-# --- CSS GIAO DIỆN NGUYÊN BẢN (KHỐI THẺ MÀU & BADGE) ---
-st.markdown("""
-<style>
-    .card-sang {
-        background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-        border: 1px solid #fde68a;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
-    }
-    .card-dem-cax {
-        background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
-        border: 1px solid #ddd6fe;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
-    }
-    .card-dem-ap {
-        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-        border: 1px solid #bbf7d0;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
-    }
-    .mem-item {
-        background: #ffffff;
-        border-radius: 8px;
-        padding: 8px 12px;
-        margin-bottom: 6px;
-        border: 1px solid rgba(0,0,0,0.06);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-weight: 500;
-    }
-    .mem-ap-tag {
-        font-size: 12px;
-        color: #4b5563;
-        background: #f3f4f6;
-        padding: 2px 8px;
-        border-radius: 10px;
-    }
-    .ai-box {
-        background: #f0fdf4;
-        border: 1.5px solid #86efac;
-        border-radius: 12px;
-        padding: 14px;
-        margin: 12px 0;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 2. HÀM DÒ TÌM MODEL GEMINI ---
+# ==========================================
+# 2. HÀM DÒ TÌM MODEL GEMINI CHUẨN
+# ==========================================
 def get_working_gemini_model():
-    for model_name in ["models/gemini-3.6-flash", "gemini-3.6-flash", "models/gemini-3.5-flash", "gemini-3.5-flash"]:
+    priority_models = [
+        "gemini-1.5-flash", 
+        "gemini-2.0-flash", 
+        "gemini-1.5-pro", 
+        "models/gemini-1.5-flash"
+    ]
+    for model_name in priority_models:
         try:
             return genai.GenerativeModel(model_name)
         except Exception:
             continue
     try:
         supported = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for candidate in ["3.6-flash", "3.5-flash", "flash"]:
-            for m_name in supported:
-                if candidate in m_name and "2.5" not in m_name and "1.5" not in m_name:
-                    return genai.GenerativeModel(m_name)
+        for m_name in supported:
+            if "flash" in m_name:
+                return genai.GenerativeModel(m_name)
         if supported:
             return genai.GenerativeModel(supported[0])
     except Exception:
         pass
-    return genai.GenerativeModel("models/gemini-3.6-flash")
+    return genai.GenerativeModel("gemini-1.5-flash")
 
-# --- 3. LOAD VÀ CACHE DỮ LIỆU ---
-@st.cache_data(ttl=60, show_spinner=False)
+# ==========================================
+# 3. LOAD VÀ ĐỒNG BỘ DỮ LIỆU GOOGLE SHEETS
+# ==========================================
+@st.cache_data(ttl=30, show_spinner=False)
 def load_data(_conn, sheet_url, worksheet):
-    return _conn.read(spreadsheet=sheet_url, worksheet=worksheet)
+    try:
+        return _conn.read(spreadsheet=sheet_url, worksheet=worksheet)
+    except Exception:
+        return pd.DataFrame()
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# Đọc dữ liệu đăng ký tuần từ sheet 'luutru'
 df_raw = load_data(conn, URL_SHEET, "luutru")
+if df_raw.empty or len(df_raw) < 3:
+    st.warning("⚠️ Bảng 'luutru' chưa có dữ liệu hoặc không đúng định dạng!")
+    st.stop()
+
 df_raw = df_raw.iloc[2:].copy()
 cols = ["Tuan", "Ap", "HoTen"]
 day_codes = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
 days_vn = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
+
 for code in day_codes:
     cols.extend([f"{code}_N", f"{code}_D_CAX", f"{code}_D_Ap"])
 df_raw.columns = cols[:len(df_raw.columns)]
 df_mem = df_raw.dropna(subset=['HoTen']).copy()
 dict_ap = dict(zip(df_mem['HoTen'], df_mem['Ap']))
 
-if "df_history" not in st.session_state:
-    df_h = load_data(conn, URL_SHEET, "NhiemVu")
-    if df_h.empty:
-        df_h = pd.DataFrame(columns=["Tuan", "Ngay", "HoTen", "LoaiNhiemVu", "Gio", "Diem", "NgayTao", "NgayThucTe"])
-    elif "NgayThucTe" not in df_h.columns:
-        df_h["NgayThucTe"] = ""
-    st.session_state["df_history"] = df_h
+# Đọc bảng 'NhiemVu'
+df_history = load_data(conn, URL_SHEET, "NhiemVu")
+required_nhiemvu_cols = ["Tuan", "Ngay", "HoTen", "LoaiNhiemVu", "Gio", "Diem", "NgayTao", "NgayThucTe"]
 
-df_history = st.session_state["df_history"]
+if df_history.empty:
+    df_history = pd.DataFrame(columns=required_nhiemvu_cols)
+else:
+    for col in required_nhiemvu_cols:
+        if col not in df_history.columns:
+            df_history[col] = ""
 
-# --- 4. TÍNH TOÁN NGÀY THỰC TẾ ---
+st.session_state["df_history"] = df_history
+
+# ==========================================
+# 4. TÍNH TOÁN NGÀY THỰC TẾ
+# ==========================================
 def parse_week_start(week_str):
     today = date.today()
     match = re.search(r"\((\d{1,2})/(\d{1,2})\s*-\s*(\d{1,2})/(\d{1,2})\)", str(week_str))
@@ -155,22 +125,36 @@ def parse_week_start(week_str):
 list_tuan = df_mem['Tuan'].dropna().unique().tolist()[::-1]
 default_tuan_idx = 0
 today = date.today()
+
 for i, w in enumerate(list_tuan):
     st_date = parse_week_start(w)
     if st_date and (st_date <= today <= st_date + timedelta(days=6)):
         default_tuan_idx = i
         break
 
-# --- 5. SIDEBAR ---
+# ==========================================
+# 5. THANH ĐIỀU HƯỚNG (SIDEBAR)
+# ==========================================
 st.sidebar.header("🔐 HỆ THỐNG ĐIỀU HÀNH")
+
+if st.sidebar.button("🔄 Tải lại dữ liệu mới nhất", use_container_width=True):
+    st.cache_data.clear()
+    if "df_history" in st.session_state:
+        del st.session_state["df_history"]
+    for k in list(st.session_state.keys()):
+        if k.startswith("gac_") or k.startswith("ms_tt") or k.startswith("dx") or k.startswith("pending_ai_"):
+            del st.session_state[k]
+    st.sidebar.success("Đã đồng bộ dữ liệu mới nhất từ Google Sheets!")
+    st.rerun()
+
 access_key = st.sidebar.text_input("Mã điều hành:", type="password")
 is_admin = (access_key == ADMIN_PASSWORD)
-
-selected_week = st.sidebar.selectbox("Tuần trực:", list_tuan, index=default_tuan_idx)
+selected_week = st.sidebar.selectbox("Tuần trực:", list_tuan, index=default_tuan_idx if list_tuan else 0)
 week_start_date = parse_week_start(selected_week)
 
 day_options = []
 day_to_actual_date = {}
+
 for i, d_name in enumerate(days_vn):
     if week_start_date:
         act_d = week_start_date + timedelta(days=i)
@@ -182,7 +166,7 @@ for i, d_name in enumerate(days_vn):
     day_options.append(label)
 
 cur_weekday = datetime.now().weekday()
-selected_day_label = st.sidebar.selectbox("Ngày trực:", day_options, index=cur_weekday)
+selected_day_label = st.sidebar.selectbox("Ngày trực:", day_options, index=cur_weekday if cur_weekday < len(day_options) else 0)
 selected_day = selected_day_label.split(" (")[0]
 actual_date_str = day_to_actual_date[selected_day_label]
 
@@ -198,18 +182,20 @@ morning_list = df_curr_week[df_curr_week[f"{d_code}_N"].astype(str).str.lower().
 night_cax_list = df_curr_week[df_curr_week[f"{d_code}_D_CAX"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 night_ap_list = df_curr_week[df_curr_week[f"{d_code}_D_Ap"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 
-# --- 6. GIAO DIỆN TABS ---
+# ==========================================
+# 6. GIAO DIỆN TABS
+# ==========================================
 tab_view, tab_manage, tab_attendance = st.tabs(["📋 XEM NHIỆM VỤ", "⚙️ PHÂN CÔNG & TRỢ LÝ AI", "✅ ĐIỂM DANH"])
 
-# ==========================================
+# ------------------------------------------
 # TAB 1: XEM NHIỆM VỤ
-# ==========================================
+# ------------------------------------------
 with tab_view:
     st.subheader(f"📌 LỊCH PHÂN CÔNG: {selected_day_label} - {selected_week}")
     tasks = df_history[(df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day)]
     if not tasks.empty:
         tasks = tasks.copy()
-        tasks['Ấp'] = tasks['HoTen'].map(dict_ap)
+        tasks['Ấp'] = tasks['HoTen'].map(dict_ap).fillna("—")
         c1, c2 = st.columns(2)
         with c1:
             st.info("🛡️ GÁC CỔNG")
@@ -219,14 +205,14 @@ with tab_view:
             st.warning("🚔 TUẦN TRA & ĐỘT XUẤT")
             st.table(tasks[tasks['LoaiNhiemVu'] != 'Gác cổng'][["LoaiNhiemVu", "HoTen", "Ấp"]])
     else:
-        st.info("Chưa có dữ liệu phân công cho ngày này.")
+        st.info("Chưa có dữ liệu phân công cho ngày này (hoặc nhiệm vụ đã được xóa).")
 
-# ==========================================
+# ------------------------------------------
 # TAB 2: PHÂN CÔNG CHI TIẾT & TRỢ LÝ AI
-# ==========================================
+# ------------------------------------------
 with tab_manage:
     if not is_admin:
-        st.warning("🔒 Vui lòng nhập Mã điều hành tại thanh bên trái để sử dụng phân công.")
+        st.warning("🔒 Vui lòng nhập đúng Mã điều hành tại thanh bên trái để sử dụng phân công.")
     else:
         current_saved = df_history[(df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day)]
         day_summary = current_saved.groupby("HoTen")["Diem"].sum().reset_index() if not current_saved.empty else pd.DataFrame(columns=["HoTen", "Diem"])
@@ -239,7 +225,7 @@ with tab_manage:
                 if name in night_ap_list: return 2
                 return 3
             df_p['Prio'] = df_p['HoTen'].apply(set_prio)
-            df_p['StName'] = df_p['HoTen'].apply(lambda n: "Trực Xã" if n in night_cax_list else (f"Trực {dict_ap.get(n)}" if n in night_ap_list else "Trực Sáng"))
+            df_p['StName'] = df_p['HoTen'].apply(lambda n: "Trực Xã" if n in night_cax_list else (f"Trực {dict_ap.get(n, 'Ấp')}" if n in night_ap_list else "Trực Sáng"))
             if is_dx:
                 df_p = df_p.sort_values(['Prio', 'Diem'], ascending=[True, True])
             else:
@@ -251,110 +237,111 @@ with tab_manage:
         pool_d = get_pool(night_cax_list)
         pool_dx = get_pool(list(set(morning_list + night_cax_list + night_ap_list)), is_dx=True)
 
-        # ----------------------------------------------------
-        # KHU VỰC CHATBOX THU GỌN VỚI AI
-        # ----------------------------------------------------
+        # KHU VỰC CHATBOX TRỢ LÝ AI
         st.markdown("### 🤖 TRỢ LÝ ĐIỀU HÀNH & XẾP LỊCH TỰ ĐỘNG (GEMINI)")
-        
         c_top1, c_top2 = st.columns([3, 7])
         with c_top1:
             btn_quick_auto = st.button("⚡ Yêu cầu AI tự sắp lịch hôm nay", use_container_width=True)
 
         if "manage_chat" not in st.session_state:
             st.session_state.manage_chat = [
-                {"role": "assistant", "content": f"Chào chỉ huy, tôi đã sẵn sàng sắp xếp lịch trực cho **{selected_day_label}**. Bấm nút trên hoặc nhập yêu cầu điều chỉnh ca theo ý muốn."}
+                {"role": "assistant", "content": f"Chào chỉ huy, tôi đã sẵn sàng hỗ trợ tra cứu hoặc sắp xếp lịch trực cho **{selected_day_label}**."}
             ]
 
-        # Khung chatbox thu gọn có thanh cuộn riêng
-        chat_container = st.container(height=260)
+        chat_container = st.container(height=280)
         with chat_container:
             for msg in st.session_state.manage_chat:
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
 
-        user_query = st.chat_input("Nhập yêu cầu (VD: Tối nay ca 1 cần 5 người, ca 2 chỉ 3 người; ưu tiên Tùng gác sáng...)")
-        
+        user_query = st.chat_input("Nhập câu hỏi hoặc yêu cầu (VD: Ai đang gác ca 1?; Sắp xếp ca đêm nay...)")
         active_prompt = None
+
         if btn_quick_auto:
-            active_prompt = "Hãy tự động sắp xếp toàn bộ lịch trực hôm nay công bằng và tối ưu nhất. Mặc định gợi ý mỗi ca tuần tra 4 người (hoặc linh hoạt theo số quân có sẵn)."
+            active_prompt = "Hãy tự động sắp xếp toàn bộ lịch trực hôm nay công bằng và tối ưu nhất. Mặc định gợi ý mỗi ca tuần tra 4 người."
         elif user_query:
             active_prompt = user_query
 
         if active_prompt:
             st.session_state.manage_chat.append({"role": "user", "content": active_prompt})
-            
             if not GEMINI_API_KEY:
-                st.error("Chưa cấu hình GEMINI_API_KEY trong Secrets!")
+                st.error("Chưa cấu hình GEMINI_API_KEY trong Streamlit Secrets!")
             else:
                 with chat_container:
                     with st.chat_message("user"):
                         st.markdown(active_prompt)
                     with st.chat_message("assistant"):
-                        with st.spinner("AI đang tính toán phân bổ..."):
+                        with st.spinner("AI đang truy vấn và tính toán..."):
                             try:
                                 model = get_working_gemini_model()
+                                assigned_list = current_saved[["HoTen", "LoaiNhiemVu", "Gio", "Diem"]].to_dict(orient="records")
+                                week_scores = df_history[df_history['Tuan'].astype(str) == str(selected_week)].groupby("HoTen")["Diem"].sum().to_dict()
+
                                 prompt_system = f"""
-                                Bạn là Trợ lý Điều hành ANTTCS Bắc Tân Uyên.
-                                Ngày đang chọn: {selected_day_label} ({actual_date_str}).
-                                QUÂN SỐ TRỰC:
-                                - Sáng: {morning_list}
-                                - Đêm Công an Xã: {night_cax_list}
-                                - Đêm Ấp: {night_ap_list}
-                                - Ca gác: {list_gio}
-                                - Miễn trực: {LIST_NU}
+Bạn là Trợ lý Điều hành ANTTCS Bắc Tân Uyên.
+Ngày đang chọn: {selected_day_label} ({actual_date_str}).
 
-                                YÊU CẦU CỦA CHỈ HUY: "{active_prompt}"
+1. QUÂN SỐ ĐĂNG KÝ TRỰC THEO LỊCH:
+- Trực Sáng: {morning_list}
+- Trực Đêm Công an Xã: {night_cax_list}
+- Trực Đêm Ấp: {night_ap_list}
+- Các ca gác cổng: {list_gio}
+- Danh sách miễn trực đêm/tuần tra: {LIST_NU}
 
-                                NGUYÊN TẮC PHÂN CÔNG:
-                                1. 4 ca gác đầu ưu tiên lấy từ Trực Sáng. Các ca sau lấy từ Trực Đêm Xã.
-                                2. TUẦN TRA C1 & C2: Mặc định gợi ý 4 người/ca từ Trực Đêm Xã (trừ khi chỉ huy chỉ định số lượng khác).
-                                3. Trả lời tóm tắt ngắn gọn và KÈM THEO KHỐI JSON:
-                                ```json
-                                {{
-                                   "gac_cong": {{"ca_gio": "Họ và tên"}},
-                                   "tuan_tra_c1": ["Họ và tên"],
-                                   "tuan_tra_c2": ["Họ và tên"]
-                                }}
-                                ```
-                                """
+2. DỮ LIỆU ĐÃ PHÂN CÔNG HIỆN TẠI (TỪ BẢNG NHIỆM VỤ):
+- Các ca đã phân công hôm nay: {json.dumps(assigned_list, ensure_ascii=False)}
+- Tổng điểm nhiệm vụ tích lũy trong tuần: {json.dumps(week_scores, ensure_ascii=False)}
+
+3. YÊU CẦU CỦA CHỈ HUY:
+"{active_prompt}"
+
+HƯỚNG DẪN XỬ LÝ:
+- Nếu chỉ huy hỏi để tra cứu, kiểm tra tình hình, xem ai đang trực/gác: Trả lời tự nhiên, chính xác dựa trên danh sách phân công ở Mục 2. KHÔNG xuất kèm JSON nếu không có yêu cầu phân công hay xếp lịch.
+- Nếu chỉ huy yêu cầu xếp lịch hoặc điều chỉnh ca:
+  + Áp dụng nguyên tắc: 4 ca gác đầu ưu tiên lấy từ Trực Sáng. Các ca sau lấy từ Trực Đêm Xã. Ca tuần tra lấy từ Trực Đêm Xã.
+  + Trả lời tóm tắt ngắn gọn và KÈM THEO KHỐI JSON ở cuối cùng theo định dạng:
+```json
+{{
+  "gac_cong": {{"ca_gio": "Họ và tên"}},
+  "tuan_tra_c1": ["Họ và tên"],
+  "tuan_tra_c2": ["Họ và tên"]
+}}
+```
+"""
                                 response = model.generate_content(prompt_system)
                                 reply_text = response.text
-                                
+
                                 json_match = re.search(r"```json\s*(\{.*?\})\s*```", reply_text, re.DOTALL)
                                 if not json_match:
-                                    json_match = re.search(r"(\{[\s\S]*\"gac_cong\"[\s\S]*\})", reply_text)
+                                    json_match = re.search(r'(\{[\s\S]*"gac_cong"[\s\S]*\})', reply_text)
 
                                 if json_match:
                                     parsed_data = json.loads(json_match.group(1))
                                     st.session_state["pending_ai_proposal"] = parsed_data
                                     display_text = reply_text.replace(json_match.group(0), "").strip()
                                     if not display_text:
-                                        display_text = "Đã tính toán xong phương án trực tối ưu. Mời chỉ huy kiểm tra bảng tóm tắt và bấm **Phê Duyệt** bên dưới."
+                                        display_text = "Đã tính toán phương án phân công tối ưu. Mời chỉ huy kiểm tra bảng tóm tắt và bấm **Phê Duyệt** bên dưới."
                                     st.markdown(display_text)
                                     st.session_state.manage_chat.append({"role": "assistant", "content": display_text})
+                                    st.rerun()
                                 else:
                                     st.markdown(reply_text)
                                     st.session_state.manage_chat.append({"role": "assistant", "content": reply_text})
                             except Exception as err:
                                 st.error(f"Lỗi AI: {err}")
 
-        # ----------------------------------------------------
-        # KHỐI PHÊ DUYỆT ĐỀ XUẤT (HIỆN RÕ CÁC PHƯƠNG ÁN ĐỀ XUẤT)
-        # ----------------------------------------------------
+        # KHỐI PHÊ DUYỆT ĐỀ XUẤT TỪ AI
         if "pending_ai_proposal" in st.session_state and st.session_state["pending_ai_proposal"]:
             proposal = st.session_state["pending_ai_proposal"]
             ai_g = proposal.get("gac_cong", {})
             ai_c1_prop = proposal.get("tuan_tra_c1", [])
             ai_c2_prop = proposal.get("tuan_tra_c2", [])
-            
-            st.markdown("""
-            <div class="ai-box">
-                <b style="color:#15803d; font-size:16px;">📋 PHƯƠNG ÁN ĐỀ XUẤT TỪ AI ĐANG CHỜ PHÊ DUYỆT</b><br>
-                <span style="color:#166534; font-size:13px;">Kiểm tra danh sách gợi ý dưới đây. Bấm <b>Phê Duyệt</b> để hệ thống tự động điền vào từng ô phân công.</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Hiển thị tóm tắt trực quan phương án để chỉ huy xem trước
+
+            st.markdown("""<div style="background-color:#f0f7ff; padding:12px; border-radius:8px; border-left:5px solid #0066cc; margin-top:10px;">
+            <b>📋 PHƯƠNG ÁN ĐỀ XUẤT TỪ AI ĐANG CHỜ PHÊ DUYỆT</b><br>
+            Kiểm tra danh sách gợi ý dưới đây. Bấm <b>Phê Duyệt</b> để hệ thống tự động điền vào từng ô phân công.
+            </div>""", unsafe_allow_html=True)
+
             col_p1, col_p2 = st.columns(2)
             with col_p1:
                 st.markdown("**🛡️ Gác cổng gợi ý:**")
@@ -362,25 +349,22 @@ with tab_manage:
                 st.markdown("\n".join(gac_summary) if gac_summary else "_Không có dữ liệu_")
             with col_p2:
                 st.markdown("**🚔 Tuần tra đêm gợi ý:**")
-                st.markdown(f"- **Ca 1 (18-22h) [{len(ai_c1_prop)} đ/c]:** {', '.join(ai_c1_prop)}")
-                st.markdown(f"- **Ca 2 (22-02h) [{len(ai_c2_prop)} đ/c]:** {', '.join(ai_c2_prop)}")
+                st.markdown(f"- **Ca 1 (18-22h) [{len(ai_c1_prop)} đ/c]:** {', '.join(ai_c1_prop) if ai_c1_prop else 'Trống'}")
+                st.markdown(f"- **Ca 2 (22-02h) [{len(ai_c2_prop)} đ/c]:** {', '.join(ai_c2_prop) if ai_c2_prop else 'Trống'}")
 
             app_col1, app_col2, _ = st.columns([3, 2, 5])
             with app_col1:
                 if st.button("✅ PHÊ DUYỆT & ĐIỀN VÀO FORM", type="primary", use_container_width=True):
-                    # 1. Cập nhật trực tiếp widget key của các Selectbox gác cổng
                     for i, gio in enumerate(list_gio):
                         p_df = pool_s if i < 4 else pool_d
                         t_name = ai_g.get(gio)
                         if t_name and not p_df.empty:
-                            # So khớp tìm tên tương ứng
                             matched = p_df[p_df["HoTen"].astype(str).str.strip() == str(t_name).strip()]
                             if matched.empty:
                                 matched = p_df[p_df["Display"].astype(str).str.startswith(str(t_name).strip())]
                             if not matched.empty:
                                 st.session_state[f"gac_{gio}_{selected_day}"] = matched.iloc[0]["Display"]
 
-                    # 2. Cập nhật trực tiếp widget key của Multiselect Tuần tra
                     tt1_matched = []
                     for name in ai_c1_prop:
                         m = pool_d[pool_d["HoTen"].astype(str).str.strip() == str(name).strip()]
@@ -396,7 +380,7 @@ with tab_manage:
                     st.session_state[f"ms_tt2_{selected_day}"] = tt2_matched
 
                     del st.session_state["pending_ai_proposal"]
-                    st.success("✅ Đã phê duyệt và điền đầy đủ dữ liệu vào các ô bên dưới!")
+                    st.success("✅ Đã phê duyệt và điền vào các ô phân công!")
                     st.rerun()
 
             with app_col2:
@@ -406,18 +390,13 @@ with tab_manage:
 
         st.divider()
 
-        # ----------------------------------------------------
-        # FORM PHÂN CÔNG CHI TIẾT
-        # ----------------------------------------------------
-        # 1. GÁC CỔNG
+        # FORM ĐIỀU CHỈNH PHÂN CÔNG
         st.subheader("🛡️ 1. GÁC CỔNG")
         g_res = []
         cg1, cg2 = st.columns(2)
         for i, gio in enumerate(list_gio):
             p_df = pool_s if i < 4 else pool_d
             saved = current_saved[(current_saved['Gio'] == gio) & (current_saved['LoaiNhiemVu'] == 'Gác cổng')]
-
-            # Nếu widget chưa có trong session_state thì khởi tạo
             widget_key = f"gac_{gio}_{selected_day}"
             if widget_key not in st.session_state:
                 idx = 0
@@ -430,20 +409,12 @@ with tab_manage:
 
             with (cg1 if i % 2 == 0 else cg2):
                 if not p_df.empty:
-                    # Đảm bảo giá trị session_state hợp lệ trong options
                     if st.session_state[widget_key] not in p_df["Display"].values:
                         st.session_state[widget_key] = p_df["Display"].iloc[0]
-                    sel = st.selectbox(
-                        f"Ca {gio}",
-                        p_df["Display"],
-                        key=widget_key
-                    )
+                    sel = st.selectbox(f"Ca {gio}", p_df["Display"], key=widget_key)
                     g_res.append({"HoTen": sel.split(" (")[0], "LoaiNhiemVu": "Gác cổng", "Gio": gio, "Diem": 1})
 
-        # 2. TUẦN TRA (TÙY BIẾN LINH HOẠT THEO YÊU CẦU)
         st.subheader("🚔 2. TUẦN TRA (Mặc định gợi ý 4 người - Có thể thêm/bớt tùy ý)")
-        
-        # Khởi tạo widget key nếu chưa có
         tt1_key = f"ms_tt1_{selected_day}"
         if tt1_key not in st.session_state:
             def_tt1 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C1']['HoTen'].tolist()
@@ -456,19 +427,10 @@ with tab_manage:
 
         ct1, ct2 = st.columns(2)
         with ct1:
-            tt1 = st.multiselect(
-                "Ca 1 (18-22h):",
-                pool_d["Display"],
-                key=tt1_key
-            )
+            tt1 = st.multiselect("Ca 1 (18-22h):", pool_d["Display"], key=tt1_key)
         with ct2:
-            tt2 = st.multiselect(
-                "Ca 2 (22-02h):",
-                pool_d["Display"],
-                key=tt2_key
-            )
+            tt2 = st.multiselect("Ca 2 (22-02h):", pool_d["Display"], key=tt2_key)
 
-        # 3. ĐỘT XUẤT
         st.subheader("🆘 3. ĐỘT XUẤT (Ưu tiên Xã > Ấp)")
         saved_dx = current_saved[current_saved['LoaiNhiemVu'].str.startswith('ĐX: ', na=False)]
         if not saved_dx.empty:
@@ -506,7 +468,7 @@ with tab_manage:
             with cx2:
                 t_m = st.multiselect(f"Quân {i+1}", pool_dx["Display"], default=val_selected_mem, key=f"dxm_{i}_{selected_day}")
             with cx3:
-                t_d = st.number_input(f"Đ", 1, 10, value=val_points, key=f"dxd_{i}_{selected_day}")
+                t_d = st.number_input("Đ", 1, 10, value=val_points, key=f"dxd_{i}_{selected_day}")
 
             if t_n and t_m:
                 for m in t_m:
@@ -531,86 +493,78 @@ with tab_manage:
                 ], ignore_index=True)
 
                 conn.update(worksheet="NhiemVu", data=df_save)
+                st.cache_data.clear()
                 st.session_state["df_history"] = df_save
-                
                 st.success("✅ Đã lưu phương án thành công!")
                 st.rerun()
 
-# ==========================================
+# ------------------------------------------
 # TAB 3: ĐIỂM DANH
-# ==========================================
+# ------------------------------------------
 with tab_attendance:
     if not is_admin:
-        st.warning("Vui lòng nhập Mã điều hành để điểm danh.")
+        st.warning("🔒 Vui lòng nhập đúng Mã điều hành để điểm danh.")
     else:
         active_names = sorted(list(set(morning_list + night_cax_list + night_ap_list)))
-        with st.form("form_att"):
-            v_list = []
-            for n in active_names:
-                c1, c2, c3 = st.columns([3, 3, 4])
-                c1.write(f"**{n}**")
-                stt = c2.radio("TT", ["Có mặt", "Vắng"], key=f"at_{n}", horizontal=True, label_visibility="collapsed")
-                re = c3.text_input("Lý do", key=f"ar_{n}", label_visibility="collapsed")
-                if stt == "Vắng":
-                    lt = [l for l, lst in [("Sáng", morning_list), ("Đêm Xã", night_cax_list), ("Đêm Ấp", night_ap_list)] if n in lst]
-                    v_list.append({
-                        "Tuan": selected_week,
-                        "Ngay": selected_day,
-                        "HoTen": n,
-                        "TrangThai": "Vắng",
-                        "LyDo": re,
-                        "LoaiTruc": ", ".join(lt),
-                        "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                        "NgayThucTe": actual_date_str
-                    })
-            if st.form_submit_button("💾 LƯU VẮNG", use_container_width=True):
-                if v_list:
-                    df_db = load_data(conn, URL_SHEET, "DiemDanh")
-                    conn.update(worksheet="DiemDanh", data=pd.concat([df_db, pd.DataFrame(v_list)], ignore_index=True))
-                    st.cache_data.clear()
-                    st.success("Đã lưu điểm danh vắng!")
-                    st.rerun()
-                else:
-                    st.success("Đầy đủ quân số!")
+        if not active_names:
+            st.info("Không có quân số đăng ký trực trong ngày này.")
+        else:
+            with st.form("form_att"):
+                v_list = []
+                for n in active_names:
+                    c1, c2, c3 = st.columns([3, 3, 4])
+                    c1.write(f"{n}")
+                    stt = c2.radio("TT", ["Có mặt", "Vắng"], key=f"at_{n}", horizontal=True, label_visibility="collapsed")
+                    re_lydo = c3.text_input("Lý do", key=f"ar_{n}", label_visibility="collapsed")
+                    if stt == "Vắng":
+                        lt = [l for l, lst in [("Sáng", morning_list), ("Đêm Xã", night_cax_list), ("Đêm Ấp", night_ap_list)] if n in lst]
+                        v_list.append({
+                            "Tuan": selected_week,
+                            "Ngay": selected_day,
+                            "HoTen": n,
+                            "TrangThai": "Vắng",
+                            "LyDo": re_lydo,
+                            "LoaiTruc": ", ".join(lt),
+                            "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                            "NgayThucTe": actual_date_str
+                        })
+                if st.form_submit_button("💾 LƯU ĐIỂM DANH", use_container_width=True):
+                    if v_list:
+                        df_db = load_data(conn, URL_SHEET, "DiemDanh")
+                        req_cols = ["Tuan", "Ngay", "HoTen", "TrangThai", "LyDo", "LoaiTruc", "NgayTao", "NgayThucTe"]
+                        if df_db.empty:
+                            df_db = pd.DataFrame(columns=req_cols)
+                        else:
+                            for col in req_cols:
+                                if col not in df_db.columns:
+                                    df_db[col] = ""
+                        conn.update(worksheet="DiemDanh", data=pd.concat([df_db, pd.DataFrame(v_list)], ignore_index=True))
+                        st.cache_data.clear()
+                        st.success("Đã lưu danh sách vắng vào bảng DiemDanh thành công!")
+                        st.rerun()
+                    else:
+                        st.success("Tất cả đồng chí đều có mặt đầy đủ!")
 
 # ==========================================
-# PHẦN CUỐI: TỔNG QUAN QUÂN SỐ NGUYÊN BẢN (CARD MÀU)
+# 7. TỔNG QUAN QUÂN SỐ THEO LỊCH ĐĂNG KÝ
 # ==========================================
 st.divider()
 st.markdown(f"### 👥 TỔNG HỢP QUÂN SỐ THEO LỊCH ĐĂNG KÝ ({selected_day_label})")
 c_s, c_d, c_a = st.columns(3)
 
 with c_s:
-    st.markdown('<div class="card-sang"><h4>☀️ TRỰC SÁNG</h4>', unsafe_allow_html=True)
+    st.markdown("☀️ TRỰC SÁNG")
     for n in morning_list:
         is_night = (n in night_cax_list)
         night_icon = " 🌙" if is_night else ""
-        st.markdown(f'''
-        <div class="mem-item">
-            <span>{n}{night_icon}</span>
-            <span class="mem-ap-tag">Ấp: {dict_ap.get(n, "—")}</span>
-        </div>
-        ''', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f"- {n}{night_icon} (Ấp: {dict_ap.get(n, '—')})")
 
 with c_d:
-    st.markdown('<div class="card-dem-cax"><h4>🌙 TRỰC ĐÊM XÃ</h4>', unsafe_allow_html=True)
+    st.markdown("🌙 TRỰC ĐÊM XÃ")
     for n in night_cax_list:
-        st.markdown(f'''
-        <div class="mem-item">
-            <span>{n}</span>
-            <span class="mem-ap-tag">Ấp: {dict_ap.get(n, "—")}</span>
-        </div>
-        ''', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f"- {n} (Ấp: {dict_ap.get(n, '—')})")
 
 with c_a:
-    st.markdown('<div class="card-dem-ap"><h4>🏡 TRỰC ĐÊM ẤP</h4>', unsafe_allow_html=True)
+    st.markdown("🏡 TRỰC ĐÊM ẤP")
     for n in night_ap_list:
-        st.markdown(f'''
-        <div class="mem-item">
-            <span>{n}</span>
-            <span class="mem-ap-tag">Ấp: {dict_ap.get(n, "—")}</span>
-        </div>
-        ''', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f"- {n} (Ấp: {dict_ap.get(n, '—')})")
