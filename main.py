@@ -98,22 +98,29 @@ st.markdown("""
 
 # --- 2. HÀM DÒ TÌM MODEL GEMINI ---
 def get_working_gemini_model():
-    for model_name in ["models/gemini-3.6-flash", "gemini-3.6-flash", "models/gemini-3.5-flash", "gemini-3.5-flash"]:
+    candidate_models = [
+        "gemini-2.5-flash",
+        "models/gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "models/gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "models/gemini-1.5-flash"
+    ]
+    for model_name in candidate_models:
         try:
             return genai.GenerativeModel(model_name)
         except Exception:
             continue
     try:
         supported = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for candidate in ["3.6-flash", "3.5-flash", "flash"]:
-            for m_name in supported:
-                if candidate in m_name and "2.5" not in m_name and "1.5" not in m_name:
-                    return genai.GenerativeModel(m_name)
+        for m_name in supported:
+            if "flash" in m_name:
+                return genai.GenerativeModel(m_name)
         if supported:
             return genai.GenerativeModel(supported[0])
     except Exception:
         pass
-    return genai.GenerativeModel("models/gemini-3.6-flash")
+    return genai.GenerativeModel("gemini-2.5-flash")
 
 # --- 3. LOAD VÀ CACHE DỮ LIỆU ---
 @st.cache_data(ttl=60, show_spinner=False)
@@ -265,7 +272,6 @@ with tab_manage:
                 {"role": "assistant", "content": f"Chào chỉ huy, tôi đã sẵn sàng sắp xếp lịch trực cho **{selected_day_label}**. Bấm nút trên hoặc nhập yêu cầu điều chỉnh ca theo ý muốn."}
             ]
 
-        # Khung chatbox thu gọn có thanh cuộn riêng
         chat_container = st.container(height=260)
         with chat_container:
             for msg in st.session_state.manage_chat:
@@ -354,7 +360,6 @@ with tab_manage:
             </div>
             """, unsafe_allow_html=True)
             
-            # Hiển thị tóm tắt trực quan phương án để chỉ huy xem trước
             col_p1, col_p2 = st.columns(2)
             with col_p1:
                 st.markdown("**🛡️ Gác cổng gợi ý:**")
@@ -368,19 +373,16 @@ with tab_manage:
             app_col1, app_col2, _ = st.columns([3, 2, 5])
             with app_col1:
                 if st.button("✅ PHÊ DUYỆT & ĐIỀN VÀO FORM", type="primary", use_container_width=True):
-                    # 1. Cập nhật trực tiếp widget key của các Selectbox gác cổng
                     for i, gio in enumerate(list_gio):
                         p_df = pool_s if i < 4 else pool_d
                         t_name = ai_g.get(gio)
                         if t_name and not p_df.empty:
-                            # So khớp tìm tên tương ứng
                             matched = p_df[p_df["HoTen"].astype(str).str.strip() == str(t_name).strip()]
                             if matched.empty:
                                 matched = p_df[p_df["Display"].astype(str).str.startswith(str(t_name).strip())]
                             if not matched.empty:
                                 st.session_state[f"gac_{gio}_{selected_day}"] = matched.iloc[0]["Display"]
 
-                    # 2. Cập nhật trực tiếp widget key của Multiselect Tuần tra
                     tt1_matched = []
                     for name in ai_c1_prop:
                         m = pool_d[pool_d["HoTen"].astype(str).str.strip() == str(name).strip()]
@@ -417,7 +419,6 @@ with tab_manage:
             p_df = pool_s if i < 4 else pool_d
             saved = current_saved[(current_saved['Gio'] == gio) & (current_saved['LoaiNhiemVu'] == 'Gác cổng')]
 
-            # Nếu widget chưa có trong session_state thì khởi tạo
             widget_key = f"gac_{gio}_{selected_day}"
             if widget_key not in st.session_state:
                 idx = 0
@@ -430,7 +431,6 @@ with tab_manage:
 
             with (cg1 if i % 2 == 0 else cg2):
                 if not p_df.empty:
-                    # Đảm bảo giá trị session_state hợp lệ trong options
                     if st.session_state[widget_key] not in p_df["Display"].values:
                         st.session_state[widget_key] = p_df["Display"].iloc[0]
                     sel = st.selectbox(
@@ -443,7 +443,6 @@ with tab_manage:
         # 2. TUẦN TRA (TÙY BIẾN LINH HOẠT THEO YÊU CẦU)
         st.subheader("🚔 2. TUẦN TRA (Mặc định gợi ý 4 người - Có thể thêm/bớt tùy ý)")
         
-        # Khởi tạo widget key nếu chưa có
         tt1_key = f"ms_tt1_{selected_day}"
         if tt1_key not in st.session_state:
             def_tt1 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C1']['HoTen'].tolist()
@@ -532,6 +531,7 @@ with tab_manage:
 
                 conn.update(worksheet="NhiemVu", data=df_save)
                 st.session_state["df_history"] = df_save
+                st.cache_data.clear()
                 
                 st.success("✅ Đã lưu phương án thành công!")
                 st.rerun()
