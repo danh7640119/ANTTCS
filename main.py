@@ -99,12 +99,11 @@ st.markdown("""
 # --- 2. HÀM DÒ TÌM MODEL GEMINI ---
 def get_working_gemini_model():
     candidate_models = [
-        "gemini-2.5-flash",
-        "models/gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "models/gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "models/gemini-1.5-flash"
+        "gemini-3.6-flash",
+        "models/gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "models/gemini-3.5-flash",
+        "gemini-3.5-flash-lite"
     ]
     for model_name in candidate_models:
         try:
@@ -113,14 +112,15 @@ def get_working_gemini_model():
             continue
     try:
         supported = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        for m_name in supported:
-            if "flash" in m_name:
-                return genai.GenerativeModel(m_name)
+        for candidate in ["3.6-flash", "3.5-flash", "flash"]:
+            for m_name in supported:
+                if candidate in m_name and "2.5" not in m_name and "1.5" not in m_name and "2.0" not in m_name:
+                    return genai.GenerativeModel(m_name)
         if supported:
             return genai.GenerativeModel(supported[0])
     except Exception:
         pass
-    return genai.GenerativeModel("gemini-2.5-flash")
+    return genai.GenerativeModel("gemini-3.6-flash")
 
 # --- 3. LOAD VÀ CACHE DỮ LIỆU ---
 @st.cache_data(ttl=60, show_spinner=False)
@@ -531,7 +531,6 @@ with tab_manage:
 
                 conn.update(worksheet="NhiemVu", data=df_save)
                 st.session_state["df_history"] = df_save
-                st.cache_data.clear()
                 
                 st.success("✅ Đã lưu phương án thành công!")
                 st.rerun()
