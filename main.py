@@ -9,10 +9,20 @@ import re
 # --- 1. CẤU HÌNH TRANG & BẢO MẬT ---
 st.set_page_config(page_title="Điều hành ANTT Bắc Tân Uyên", layout="wide", page_icon="🛡️")
 
-# CSS tạo kiểu nút bấm to nổi bật và màu sắc chỉ huy
+# CSS tạo kiểu giao diện, khung viền và nút bấm nổi bật
 st.markdown("""
 <style>
-    /* Nút lưu phương án to, viền nổi và màu nổi bật */
+    /* Khung đóng viền nổi bật cho phần Bố trí tự động tuần */
+    .box-auto-week {
+        background: #f8fbf9;
+        border: 2px solid #28a745;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 12px rgba(40, 167, 69, 0.12);
+    }
+    
+    /* Nút lưu phương án ngày to, nổi bật */
     div.stButton > button[kind="primary"] {
         font-size: 18px !important;
         font-weight: 700 !important;
@@ -28,6 +38,34 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 6px 16px rgba(40, 167, 69, 0.5) !important;
         background: linear-gradient(90deg, #19692c, #218838) !important;
+    }
+
+    /* Nút bố trí tự động cả tuần to, màu cam/vàng cảnh báo nổi bật */
+    .btn-week-auto button {
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        padding: 12px 20px !important;
+        background: linear-gradient(90deg, #d35400, #e67e22) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 10px rgba(230, 126, 34, 0.35) !important;
+    }
+    .btn-week-auto button:hover {
+        background: linear-gradient(90deg, #ba4a00, #d35400) !important;
+        transform: translateY(-2px);
+    }
+
+    /* Badge ngày nổi bật trong Trợ lý điều hành */
+    .day-badge-ai {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 6px;
+        background: #0284c7;
+        color: #ffffff;
+        font-weight: bold;
+        font-size: 15px;
+        margin-bottom: 8px;
     }
     .custom-save-btn {
         margin-top: 20px;
@@ -140,7 +178,7 @@ st.sidebar.header("🔐 HỆ THỐNG ĐIỀU HÀNH")
 access_key = st.sidebar.text_input("Mã điều hành:", type="password")
 is_admin = (access_key == ADMIN_PASSWORD)
 
-# Nếu từ Thứ 3 trở đi, mặc định ưu tiên chọn tuần kế tiếp (chốt lịch tuần mới)
+# Nếu từ Thứ 3 trở đi, gợi ý tuần sau để chỉ huy chốt lịch tuần tới
 default_choice_idx = next_week_idx if today.weekday() >= 1 and next_week_idx != current_week_idx else current_week_idx
 selected_week = st.sidebar.selectbox("Tuần làm việc:", list_tuan, index=default_choice_idx)
 week_start_date = parse_week_start(selected_week)
@@ -163,7 +201,7 @@ selected_day = selected_day_label.split(" (")[0]
 actual_date_str = day_to_actual_date[selected_day_label]
 
 st.sidebar.divider()
-st.sidebar.subheader("⏰ Tùy chỉnh ca gác")
+st.sidebar.subheader("⏰ Tùy chỉnh ca gác cổng")
 default_times = "07-10h, 10-13h, 13-15h, 15-17h, 17-20h, 20-23h, 23-01h, 01-03h, 03-05h, 05-07h"
 custom_times_str = st.sidebar.text_area("Danh sách giờ (cách nhau dấu phẩy):", value=default_times)
 list_gio = [t.strip() for t in custom_times_str.split(",") if t.strip()]
@@ -175,7 +213,7 @@ morning_list = df_curr_week[df_curr_week[f"{d_code}_N"].astype(str).str.lower().
 night_cax_list = df_curr_week[df_curr_week[f"{d_code}_D_CAX"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 night_ap_list = df_curr_week[df_curr_week[f"{d_code}_D_Ap"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 
-# --- 6. HÀM XẾP LỊCH FULL TUẦN (MẶC ĐỊNH GÁC CHỐT, TRƯỜNG, CỔNG, TUẦN TRA) ---
+# --- 6. HÀM XẾP LỊCH FULL TUẦN ---
 def auto_schedule_full_week(week_name, df_week_pool):
     member_load = {name: 0 for name in df_week_pool['HoTen'].unique()}
     week_tasks = []
@@ -204,7 +242,7 @@ def auto_schedule_full_week(week_name, df_week_pool):
             member_load[chosen] = member_load.get(chosen, 0) + 1
             return chosen
 
-        # 1. Gác trường học (mặc định Thứ 2 - Thứ 6)
+        # 1. Gác trường học (Thứ 2 - Thứ 6: 7 trường)
         if d_vn not in ["Thứ 7", "Chủ nhật"]:
             for tr in DANH_SACH_TRUONG:
                 c = pick_cand(s_list if s_list else d_cax, allow_dup=True)
@@ -214,7 +252,7 @@ def auto_schedule_full_week(week_name, df_week_pool):
                     "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"), "NgayThucTe": act_date
                 })
 
-        # 2. Gác chốt cao điểm (mặc định 3 chốt)
+        # 2. Gác chốt cao điểm (3 chốt)
         for chot in DANH_SACH_CHOT:
             c = pick_cand(s_list if s_list else d_cax, allow_dup=True)
             week_tasks.append({
@@ -223,7 +261,7 @@ def auto_schedule_full_week(week_name, df_week_pool):
                 "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"), "NgayThucTe": act_date
             })
 
-        # 3. TTKS ban ngày (5 đ/c)
+        # 3. Phối hợp tuần tra TTKS ban ngày (5 đ/c)
         for _ in range(5):
             c = pick_cand(s_nam if s_nam else s_list, allow_dup=True)
             week_tasks.append({
@@ -264,48 +302,115 @@ def auto_schedule_full_week(week_name, df_week_pool):
 tab_view, tab_manage, tab_attendance = st.tabs(["📋 XEM NHIỆM VỤ", "⚙️ PHÂN CÔNG & TRỢ LÝ AI", "✅ ĐIỂM DANH"])
 
 # ==========================================
-# TAB 1: XEM NHIỆM VỤ (GIỮ NGUYÊN CẤU TRÚC GỐC)
+# TAB 1: XEM NHIỆM VỤ (CHIA TÁCH THEO LOẠI RÕ RÀNG)
 # ==========================================
 with tab_view:
     st.subheader(f"📌 LỊCH PHÂN CÔNG: {selected_day_label} - {selected_week}")
     tasks = df_history[(df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day)]
+    
     if not tasks.empty:
         tasks = tasks.copy()
-        tasks['Ấp'] = tasks['HoTen'].map(dict_ap)
-        c1, c2 = st.columns(2)
-        with c1:
-            st.info("🛡️ GÁC CỔNG")
-            g_df = tasks[tasks['LoaiNhiemVu'] == 'Gác cổng']
-            st.table(g_df[["Gio", "HoTen", "Ấp"]])
-        with c2:
-            st.warning("🚔 TUẦN TRA & ĐỘT XUẤT (GỒM CẢ CHỐT / TRƯỜNG)")
-            st.table(tasks[tasks['LoaiNhiemVu'] != 'Gác cổng'][["LoaiNhiemVu", "HoTen", "Ấp"]])
+        tasks['Ấp'] = tasks['HoTen'].map(dict_ap).fillna("—")
+        
+        # Nhóm các loại nhiệm vụ
+        df_gac_cong = tasks[tasks['LoaiNhiemVu'] == 'Gác cổng']
+        df_chot = tasks[tasks['LoaiNhiemVu'].str.startswith('Gác chốt', na=False)]
+        df_truong = tasks[tasks['LoaiNhiemVu'].str.startswith('Gác trường', na=False)]
+        df_ttks_ngay = tasks[tasks['LoaiNhiemVu'] == 'Tuần tra TTKS ban ngày']
+        df_tt_dem = tasks[tasks['LoaiNhiemVu'].isin(['Tuần tra C1', 'Tuần tra C2'])]
+        df_dot_xuat = tasks[tasks['LoaiNhiemVu'].str.startswith('ĐX: ', na=False)]
+
+        # BỐ TRÍ DÒNG 1: GÁC CỔNG & TUẦN TRA ĐÊM
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            st.info("🛡️ 1. GÁC CỔNG TRỤ SỞ")
+            if not df_gac_cong.empty:
+                st.table(df_gac_cong[["Gio", "HoTen", "Ấp"]])
+            else:
+                st.caption("Chưa có ca gác cổng.")
+        
+        with col_v2:
+            st.error("🌙 2. TUẦN TRA ĐÊM (C1: 18-22h | C2: 22-02h)")
+            if not df_tt_dem.empty:
+                st.table(df_tt_dem[["LoaiNhiemVu", "Gio", "HoTen", "Ấp"]])
+            else:
+                st.caption("Chưa có phân công tuần tra đêm.")
+
+        st.write("")
+
+        # BỐ TRÍ DÒNG 2: CHỐT CAO ĐIỂM & TRƯỜNG HỌC
+        col_v3, col_v4 = st.columns(2)
+        with col_v3:
+            st.warning("🚦 3. GÁC CHỐT CAO ĐIỂM (06-08h & 16-18h)")
+            if not df_chot.empty:
+                st.table(df_chot[["LoaiNhiemVu", "HoTen", "Ấp"]])
+            else:
+                st.caption("Không có ca gác chốt.")
+
+        with col_v4:
+            st.success("🎒 4. GÁC ĐIỀU TIẾT TRƯỜNG HỌC (06-08h & 16-18h)")
+            if not df_truong.empty:
+                st.table(df_truong[["LoaiNhiemVu", "HoTen", "Ấp"]])
+            else:
+                st.caption("Không có lịch gác trường học (hoặc ngày cuối tuần).")
+
+        st.write("")
+
+        # BỐ TRÍ DÒNG 3: TTKS BAN NGÀY & ĐỘT XUẤT
+        col_v5, col_v6 = st.columns(2)
+        with col_v5:
+            st.info("🚔 5. PHỐI HỢP TUẦN TRA TTKS BAN NGÀY (3 Ca)")
+            if not df_ttks_ngay.empty:
+                st.table(df_ttks_ngay[["HoTen", "Ấp"]])
+            else:
+                st.caption("Chưa có lịch tuần tra ban ngày.")
+
+        with col_v6:
+            st.warning("🆘 6. NHIỆM VỤ ĐỘT XUẤT TRONG NGÀY")
+            if not df_dot_xuat.empty:
+                st.table(df_dot_xuat[["LoaiNhiemVu", "HoTen", "Diem", "Ấp"]])
+            else:
+                st.caption("Không có nhiệm vụ đột xuất.")
     else:
         st.info("Chưa có dữ liệu phân công cho ngày này. Vui lòng sang Tab 'Phân công' để tạo lịch.")
 
 # ==========================================
-# TAB 2: PHÂN CÔNG CHI TIẾT & TRỢ LÝ AI (THEO ĐÚNG CŨ)
+# TAB 2: PHÂN CÔNG CHI TIẾT & TRỢ LÝ AI
 # ==========================================
 with tab_manage:
     if not is_admin:
         st.warning("🔒 Vui lòng nhập Mã điều hành tại thanh bên trái để sử dụng phân công.")
     else:
-        # NÚT XẾP LỊCH FULL TUẦN NHANH (MẶC ĐỊNH CHỐT, TRƯỜNG, CỔNG, TUẦN TRA)
-        st.markdown(f"### 🚀 BỐ TRÍ TRỌN GÓI CẢ TUẦN: **{selected_week}**")
-        st.caption("Tự động xoay đều quân số theo ca trực đã đăng ký, phân bổ toàn bộ: Gác trường, Gác chốt, TTKS ngày, Gác cổng, Tuần tra đêm.")
-        if st.button(f"⚡ BỐ TRÍ & LƯU TỰ ĐỘNG FULL CẢ TUẦN ({selected_week})", type="secondary", use_container_width=True):
-            if df_curr_week.empty:
-                st.error(f"Không tìm thấy dữ liệu đăng ký trực của '{selected_week}' trong bảng 'luutru'!")
-            else:
-                with st.spinner("Đang tính toán xoay tua quân số và ghi vào Google Sheets..."):
-                    df_new_week = auto_schedule_full_week(selected_week, df_curr_week)
-                    df_remain = df_history[df_history['Tuan'].astype(str) != str(selected_week)]
-                    df_save_all = pd.concat([df_remain, df_new_week], ignore_index=True)
-                    conn.update(worksheet="NhiemVu", data=df_save_all)
-                    st.session_state["df_history"] = df_save_all
-                    st.cache_data.clear()
-                    st.success(f"✅ Đã bố trí thành công {len(df_new_week)} nhiệm vụ cho cả tuần {selected_week}!")
-                    st.rerun()
+        # 1. KHUNG BỐ TRÍ TỰ ĐỘNG FULL TUẦN (ĐÓNG KHUNG CHIA 2 PHẦN RÕ RỆT)
+        st.markdown(f"""
+        <div class="box-auto-week">
+            <h3 style="margin-top:0; color:#1e7e34;">🚀 BỐ TRÍ TRỌN GÓI CẢ TUẦN: <u>{selected_week}</u></h3>
+            <p style="color:#555; font-size:14px; margin-bottom:12px;">
+                Hệ thống tự động quét dữ liệu đăng ký trực tuần, phân bổ xoay tua công bằng: 
+                <b>Gác trường học (7 trường)</b>, <b>Gác chốt cao điểm (3 chốt)</b>, <b>TTKS ban ngày (5 đ/c)</b>, <b>Gác cổng (10 ca)</b> và <b>Tuần tra đêm 2 ca</b>.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col_frame1, col_frame2 = st.columns([5, 5])
+        with col_frame1:
+            st.markdown('<div class="btn-week-auto">', unsafe_allow_html=True)
+            if st.button(f"⚡ BỐ TRÍ & LƯU TỰ ĐỘNG FULL TUẦN ({selected_week})", use_container_width=True):
+                if df_curr_week.empty:
+                    st.error(f"Không tìm thấy dữ liệu đăng ký trực của '{selected_week}' trong bảng 'luutru'!")
+                else:
+                    with st.spinner("Đang tính toán xoay tua quân số và ghi vào Google Sheets..."):
+                        df_new_week = auto_schedule_full_week(selected_week, df_curr_week)
+                        df_remain = df_history[df_history['Tuan'].astype(str) != str(selected_week)]
+                        df_save_all = pd.concat([df_remain, df_new_week], ignore_index=True)
+                        conn.update(worksheet="NhiemVu", data=df_save_all)
+                        st.session_state["df_history"] = df_save_all
+                        st.cache_data.clear()
+                        st.success(f"✅ Đã bố trí thành công {len(df_new_week)} nhiệm vụ cho cả tuần {selected_week}!")
+                        st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col_frame2:
+            st.info(f"💡 **Chỉ huy lưu ý:** Bấm nút bên cạnh sẽ tự động lên lịch trọn vẹn từ Thứ 2 đến Chủ nhật cho tuần **{selected_week}**. Các ca chốt, trường, TTKS được giữ mặc định.")
 
         st.divider()
 
@@ -334,9 +439,14 @@ with tab_manage:
         pool_dx = get_pool(list(set(morning_list + night_cax_list + night_ap_list)), is_dx=True)
 
         # ----------------------------------------------------
-        # KHU VỰC CHATBOX AI ĐIỀU HÀNH & TRA CỨU QUÂN SỐ
+        # 2. KHU VỰC TRỢ LÝ AI ĐIỀU HÀNH (HIỆN RÕ NGÀY ĐANG CHỌN)
         # ----------------------------------------------------
-        st.markdown(f"### 🤖 TRỢ LÝ ĐIỀU HÀNH & KIỂM TRA QUÂN SỐ ({selected_day})")
+        st.markdown(f"""
+        <div>
+            <span class="day-badge-ai">📅 ĐANG ĐIỀU HÀNH: {selected_day_label.upper()}</span>
+            <h3 style="margin-top:4px;">🤖 TRỢ LÝ ĐIỀU HÀNH & KIỂM TRA QUÂN SỐ TRONG NGÀY</h3>
+        </div>
+        """, unsafe_allow_html=True)
 
         current_tasks_summary = []
         if not current_saved.empty:
@@ -347,17 +457,17 @@ with tab_manage:
 
         if "manage_chat" not in st.session_state:
             st.session_state.manage_chat = [
-                {"role": "assistant", "content": f"Chào chỉ huy, tôi đã nắm danh sách nhiệm vụ **{selected_day_label}**. Chỉ huy có thể bấm nút kiểm tra nhanh bên dưới hoặc hỏi ai rảnh để chia thêm ca **giữ đối tượng đột xuất**."}
+                {"role": "assistant", "content": f"Chào chỉ huy, tôi đang theo dõi lịch trực của **{selected_day_label}**. Chỉ huy bấm nút kiểm tra nhanh bên dưới hoặc hỏi ai rảnh để chia thêm ca **giữ đối tượng đột xuất**."}
             ]
 
         col_q1, col_q2 = st.columns(2)
         quick_query = None
         with col_q1:
-            if st.button("🔍 Hôm nay ai đã làm những gì rồi?", use_container_width=True):
-                quick_query = "Hãy liệt kê ngắn gọn danh sách các đồng chí đã được giao nhiệm vụ hôm nay và công việc cụ thể của từng người."
+            if st.button(f"🔍 Hôm nay ({selected_day}) ai đã làm những gì rồi?", use_container_width=True):
+                quick_query = f"Trong ngày {selected_day_label}, hãy liệt kê ngắn gọn danh sách các đồng chí đã được giao nhiệm vụ và công việc cụ thể của từng người."
         with col_q2:
-            if st.button("⚖️ Ai rảnh nhất để phân giữ đối tượng đột xuất?", use_container_width=True):
-                quick_query = "Trong ngày hôm nay, ai hiện chưa có nhiệm vụ hoặc đang ít ca nhất để tôi phân công canh giữ đối tượng đột xuất? Tránh trùng ca đang gác."
+            if st.button(f"⚖️ Ai rảnh nhất ngày {selected_day} để giữ đối tượng đột xuất?", use_container_width=True):
+                quick_query = f"Trong ngày {selected_day_label}, ai hiện chưa có nhiệm vụ hoặc đang ít ca nhất để tôi phân công canh giữ đối tượng đột xuất? Tránh trùng ca đang gác."
 
         chat_container = st.container(height=240)
         with chat_container:
@@ -365,7 +475,7 @@ with tab_manage:
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
 
-        user_query = st.chat_input("Nhập câu hỏi (VD: Cần 2 người giữ đối tượng ca 14h-17h, ai phù hợp nhất...)")
+        user_query = st.chat_input(f"Nhập câu hỏi điều hành cho {selected_day} (VD: Cần 2 người giữ đối tượng ca 14h-17h, ai phù hợp nhất...)")
         active_prompt = quick_query if quick_query else user_query
 
         if active_prompt:
@@ -379,8 +489,8 @@ with tab_manage:
                             model = get_working_gemini_model()
                             ai_sys = f"""
 Bạn là Trợ lý Điều hành ANTTCS Bắc Tân Uyên.
-Ngày: {selected_day_label} ({actual_date_str}).
-DANH SÁCH NHIỆM VỤ ĐÃ PHÂN CÔNG HÔM NAY:
+Ngày đang xem: {selected_day_label} ({actual_date_str}).
+DANH SÁCH NHIỆM VỤ ĐÃ PHÂN CÔNG HÔM NAY ({selected_day}):
 {tasks_context_str}
 
 QUÂN SỐ TRỰC HÔM NAY:
@@ -390,7 +500,7 @@ QUÂN SỐ TRỰC HÔM NAY:
 - Nữ miễn trực đêm: {LIST_NU}
 
 YÊU CẦU: "{active_prompt}"
-Trả lời ngắn gọn, thẳng thắn, rõ ràng theo tác phong chỉ huy công an.
+Trả lời ngắn gọn, thẳng thắn, rõ ràng theo tác phong chỉ huy công an. Luôn nêu rõ ngày {selected_day} trong câu trả lời.
 """
                             resp = model.generate_content(ai_sys)
                             st.markdown(resp.text)
@@ -401,7 +511,7 @@ Trả lời ngắn gọn, thẳng thắn, rõ ràng theo tác phong chỉ huy c�
         st.divider()
 
         # ----------------------------------------------------
-        # FORM PHÂN CÔNG CHI TIẾT (GIỮ ĐÚNG NGUYÊN BẢN BAN ĐẦU)
+        # 3. FORM PHÂN CÔNG THEO NGÀY (GIỮ ĐÚNG NGUYÊN BẢN CŨ)
         # ----------------------------------------------------
         # 1. GÁC CỔNG
         st.subheader("🛡️ 1. GÁC CỔNG")
@@ -426,8 +536,8 @@ Trả lời ngắn gọn, thẳng thắn, rõ ràng theo tác phong chỉ huy c�
                     sel = st.selectbox(f"Ca {gio}", p_df["Display"], key=widget_key)
                     g_res.append({"HoTen": sel.split(" (")[0], "LoaiNhiemVu": "Gác cổng", "Gio": gio, "Diem": 1})
 
-        # 2. TUẦN TRA (TÙY BIẾN LINH HOẠT THEO YÊU CẦU)
-        st.subheader("🚔 2. TUẦN TRA (Mặc định gợi ý 4 người - Có thể thêm/bớt tùy ý)")
+        # 2. TUẦN TRA ĐÊM
+        st.subheader("🚔 2. TUẦN TRA ĐÊM (Mặc định gợi ý 4 người - Có thể thêm/bớt tùy ý)")
         tt1_key = f"ms_tt1_{selected_day}"
         if tt1_key not in st.session_state:
             def_tt1 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C1']['HoTen'].tolist()
