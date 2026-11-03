@@ -9,6 +9,33 @@ import re
 # --- 1. CẤU HÌNH TRANG & BẢO MẬT ---
 st.set_page_config(page_title="Điều hành ANTT Bắc Tân Uyên", layout="wide", page_icon="🛡️")
 
+# CSS tạo kiểu nút bấm nổi bật, thẻ màu và giao diện chỉ huy
+st.markdown("""
+<style>
+    /* Nút lưu phương án to, viền nổi và màu nổi bật */
+    div.stButton > button[kind="primary"] {
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        padding: 12px 24px !important;
+        border-radius: 8px !important;
+        background: linear-gradient(90deg, #1e7e34, #28a745) !important;
+        border: none !important;
+        color: white !important;
+        box-shadow: 0 4px 12px rgba(40, 167, 69, 0.35) !important;
+        transition: all 0.3s ease !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(40, 167, 69, 0.5) !important;
+        background: linear-gradient(90deg, #19692c, #218838) !important;
+    }
+    .custom-save-btn {
+        margin-top: 15px;
+        margin-bottom: 25px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 def get_gemini_key():
     if "GEMINI_API_KEY" in st.secrets:
         return str(st.secrets["GEMINI_API_KEY"]).strip().strip('"').strip("'")
@@ -86,20 +113,16 @@ if "df_history" not in st.session_state:
     st.session_state["df_history"] = df_h
 df_history = st.session_state["df_history"]
 
-# --- 4. TÍNH TOÁN NGÀY THỰC TẾ & NHẬN DIỆN TUẦN SAU ---
+# --- 4. TÍNH TOÁN NGÀY THỰC TẾ & NHẬN DIỆN TUẦN ---
 def parse_week_start(week_str):
     today = date.today()
     match = re.search(r"\((\d{1,2})/(\d{1,2})\s*-\s*(\d{1,2})/(\d{1,2})\)", str(week_str))
     if match:
         d1, m1 = int(match.group(1)), int(match.group(2))
-        # Dự đoán năm nếu chuyển giao năm
-        yr = today.year
-        return date(yr, m1, d1)
+        return date(today.year, m1, d1)
     return None
 
 list_tuan = df_mem['Tuan'].dropna().unique().tolist()[::-1]
-
-# Tìm tuần hiện tại và tuần kế tiếp
 today = date.today()
 current_week_idx = 0
 next_week_idx = 0
@@ -109,7 +132,6 @@ for i, w in enumerate(list_tuan):
     if st_date:
         if st_date <= today <= st_date + timedelta(days=6):
             current_week_idx = i
-            # Nếu danh sách tuần mới nhất nằm ở đầu danh sách
             next_week_idx = max(0, i - 1)
             break
 
@@ -118,8 +140,6 @@ st.sidebar.header("🔐 HỆ THỐNG ĐIỀU HÀNH")
 access_key = st.sidebar.text_input("Mã điều hành:", type="password")
 is_admin = (access_key == ADMIN_PASSWORD)
 
-st.sidebar.markdown("### 📅 Chọn Tuần Kế Hoạch")
-# Mặc định gợi ý tuần đang chọn: nếu hôm nay là Thứ 3 trở đi, chỉ huy thường chuẩn bị cho tuần sau
 default_choice_idx = next_week_idx if today.weekday() >= 1 and next_week_idx != current_week_idx else current_week_idx
 selected_week = st.sidebar.selectbox("Tuần làm việc:", list_tuan, index=default_choice_idx)
 week_start_date = parse_week_start(selected_week)
@@ -154,29 +174,18 @@ morning_list = df_curr_week[df_curr_week[f"{d_code}_N"].astype(str).str.lower().
 night_cax_list = df_curr_week[df_curr_week[f"{d_code}_D_CAX"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 night_ap_list = df_curr_week[df_curr_week[f"{d_code}_D_Ap"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 
-# --- 6. THUẬT TOÁN XOAY ĐỀU QUÂN SỐ CẢ TUẦN TỪ THỨ 2 ĐẾN CHỦ NHẬT ---
+# --- 6. THUẬT TOÁN XOAY ĐỀU QUÂN CẢ TUẦN ---
 def generate_balanced_week_schedule(week_str, df_week_pool):
-    """
-    Phân bổ hợp lý toàn bộ tuần cho lực lượng ANTTCS:
-    - Ca Sáng: Gác trường (7 điểm, T2-T6), Chốt cao điểm (3 điểm), TTKS giao thông ban ngày (5 đ/c), Gác cổng ban ngày (ca 1-4).
-    - Ca Đêm Xã: Tuần tra đêm C1 (18-22h, 4 đ/c), Tuần tra đêm C2 (22-02h, 4 đ/c), Gác cổng đêm (ca 5-10).
-    - Cân bằng số lượt phân công trong cả tuần, ưu tiên người ít ca trước.
-    """
     member_load = {name: 0 for name in df_week_pool['HoTen'].unique()}
     week_tasks = []
 
     for day_idx, d_vn in enumerate(days_vn):
         c_code = day_codes[day_idx]
-        if week_start_date:
-            act_date = (week_start_date + timedelta(days=day_idx)).strftime('%Y-%m-%d')
-        else:
-            act_date = datetime.now().strftime('%Y-%m-%d')
+        act_date = (week_start_date + timedelta(days=day_idx)).strftime('%Y-%m-%d') if week_start_date else datetime.now().strftime('%Y-%m-%d')
 
         day_morning = df_week_pool[df_week_pool[f"{c_code}_N"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
         day_night_cax = df_week_pool[df_week_pool[f"{c_code}_D_CAX"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
-        day_night_ap = df_week_pool[df_week_pool[f"{c_code}_D_Ap"].astype(str).str.lower().str.contains('x', na=False)]['HoTen'].tolist()
 
-        # Lọc nam giới cho ca đêm và TTKS cơ động
         day_morning_nam = [n for n in day_morning if n not in LIST_NU]
         day_night_nam = [n for n in day_night_cax if n not in LIST_NU]
 
@@ -188,15 +197,13 @@ def generate_balanced_week_schedule(week_str, df_week_pool):
                 pool = candidates
             if not pool:
                 return "Chưa đủ quân số"
-            # Ưu tiên đồng chí có tổng số nhiệm vụ trong tuần thấp nhất
             pool.sort(key=lambda x: (member_load.get(x, 0), x))
             selected = pool[0]
             used_in_day.add(selected)
             member_load[selected] = member_load.get(selected, 0) + 1
             return selected
 
-        # A. CÁC NHIỆM VỤ BAN NGÀY (Ưu tiên lấy từ danh sách Trực Sáng)
-        # 1. Gác trường học (Thứ 2 - Thứ 6: 7 trường)
+        # 1. Gác trường học (T2 - T6)
         if d_vn not in ["Thứ 7", "Chủ nhật"]:
             for truong in DANH_SACH_TRUONG:
                 cand = select_best(day_morning if day_morning else day_night_cax, allow_reuse=True)
@@ -206,7 +213,7 @@ def generate_balanced_week_schedule(week_str, df_week_pool):
                     "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"), "NgayThucTe": act_date
                 })
 
-        # 2. Gác chốt cao điểm (3 chốt: Ngã ba Cây Trắc, KCN, TTHC)
+        # 2. Gác chốt cao điểm (3 chốt)
         for chot in DANH_SACH_CHOT:
             cand = select_best(day_morning if day_morning else day_night_cax, allow_reuse=True)
             week_tasks.append({
@@ -215,7 +222,7 @@ def generate_balanced_week_schedule(week_str, df_week_pool):
                 "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"), "NgayThucTe": act_date
             })
 
-        # 3. Phối hợp tuần tra kiểm soát giao thông ban ngày (5 đ/c)
+        # 3. Phối hợp tuần tra TTKS ban ngày (5 đ/c)
         for _ in range(5):
             cand = select_best(day_morning_nam if day_morning_nam else day_morning, allow_reuse=True)
             week_tasks.append({
@@ -224,7 +231,7 @@ def generate_balanced_week_schedule(week_str, df_week_pool):
                 "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"), "NgayThucTe": act_date
             })
 
-        # 4. Gác cổng trụ sở các ca ngày (4 ca đầu: 07h-17h)
+        # 4. Gác cổng ca ngày (4 ca đầu)
         for g_idx in range(min(4, len(list_gio))):
             cand = select_best(day_morning if day_morning else day_night_cax, allow_reuse=True)
             week_tasks.append({
@@ -233,8 +240,7 @@ def generate_balanced_week_schedule(week_str, df_week_pool):
                 "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"), "NgayThucTe": act_date
             })
 
-        # B. CÁC NHIỆM VỤ BAN ĐÊM (Ưu tiên lấy từ danh sách Trực Đêm Xã)
-        # 5. Tuần tra đêm Ca 1 (18-22h: 4 đ/c)
+        # 5. Tuần tra đêm C1 & C2
         for _ in range(4):
             cand = select_best(day_night_nam if day_night_nam else day_night_cax, allow_reuse=True)
             week_tasks.append({
@@ -242,8 +248,6 @@ def generate_balanced_week_schedule(week_str, df_week_pool):
                 "LoaiNhiemVu": "Tuần tra C1", "Gio": "18-22h", "Diem": 1,
                 "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"), "NgayThucTe": act_date
             })
-
-        # 6. Tuần tra đêm Ca 2 (22-02h: 4 đ/c)
         for _ in range(4):
             cand = select_best(day_night_nam if day_night_nam else day_night_cax, allow_reuse=True)
             week_tasks.append({
@@ -252,7 +256,7 @@ def generate_balanced_week_schedule(week_str, df_week_pool):
                 "NgayTao": datetime.now().strftime("%d/%m/%Y %H:%M"), "NgayThucTe": act_date
             })
 
-        # 7. Gác cổng trụ sở các ca đêm còn lại (từ ca thứ 5 trở đi)
+        # 6. Gác cổng ca đêm
         for g_idx in range(4, len(list_gio)):
             cand = select_best(day_night_nam if day_night_nam else day_night_cax, allow_reuse=True)
             week_tasks.append({
@@ -267,7 +271,7 @@ def generate_balanced_week_schedule(week_str, df_week_pool):
 tab_view, tab_manage, tab_attendance = st.tabs(["📋 XEM LỊCH NHIỆM VỤ", "⚙️ SẮP LỊCH TUẦN & TỪNG NGÀY", "✅ ĐIỂM DANH"])
 
 # ==========================================
-# TAB 1: XEM NHIỆM VỤ (THEO NGÀY HOẶC THEO CẢ TUẦN)
+# TAB 1: XEM LỊCH NHIỆM VỤ
 # ==========================================
 with tab_view:
     c_hdr1, c_hdr2 = st.columns([7, 3])
@@ -306,56 +310,134 @@ with tab_view:
             st.warning("Chưa có dữ liệu của tuần này.")
 
 # ==========================================
-# TAB 2: SẮP LỊCH TUẦN & TÙY CHỈNH NGÀY
+# TAB 2: SẮP LỊCH TUẦN, ĐỘT XUẤT & TRỢ LÝ AI
 # ==========================================
 with tab_manage:
     if not is_admin:
         st.warning("🔒 Vui lòng nhập Mã điều hành ở cột bên trái để thực hiện phân công.")
     else:
-        # 1. KHU VỰC PHÂN LỊCH FULL TUẦN (1 CHẠM CHO TUẦN SAU HOẶC TUẦN NÀY)
+        # 1. BỐ TRÍ FULL TUẦN (1 CHẠM)
         st.markdown(f"### 🚀 BỐ TRÍ TRỌN GÓI CHO CẢ TUẦN: **{selected_week}**")
-        st.caption("Thuật toán tự động đọc bảng `luutru`, tính toán xoay tua công bằng toàn bộ lực lượng ANTTCS, phân đầy đủ: Gác trường (7 điểm), Gác chốt (3 điểm), TTKS ban ngày (5 đ/c), Gác cổng (10 ca), Tuần tra đêm C1 & C2.")
-
-        col_run1, col_run2 = st.columns([4, 6])
-        with col_run1:
-            btn_generate_full = st.button(f"⚡ BỐ TRÍ & LƯU FULL TUẦN ({selected_week})", type="primary", use_container_width=True)
-            if btn_generate_full:
-                if df_curr_week.empty:
-                    st.error(f"Không tìm thấy dữ liệu đăng ký trực của '{selected_week}' trong bảng 'luutru'!")
-                else:
-                    with st.spinner("Đang tính toán xoay tua quân số và lưu vào Google Sheets..."):
-                        df_new_week = generate_balanced_week_schedule(selected_week, df_curr_week)
-                        # Xóa bỏ lịch cũ của tuần này (nếu có) và ghi đè lịch mới
-                        df_remain = df_history[df_history['Tuan'].astype(str) != str(selected_week)]
-                        df_save_all = pd.concat([df_remain, df_new_week], ignore_index=True)
-
-                        conn.update(worksheet="NhiemVu", data=df_save_all)
-                        st.session_state["df_history"] = df_save_all
-                        st.cache_data.clear()
-                        st.success(f"✅ Đã bố trí thành công {len(df_new_week)} nhiệm vụ cho cả tuần {selected_week}!")
-                        st.rerun()
+        st.caption("Tự động cân đối điểm số, xoay đều quân số theo ca trực đã đăng ký, phân bổ toàn diện: Gác trường, Gác chốt, TTKS ngày, Gác cổng, Tuần tra đêm.")
+        if st.button(f"⚡ BỐ TRÍ & LƯU TỰ ĐỘNG FULL CẢ TUẦN ({selected_week})", type="secondary", use_container_width=True):
+            if df_curr_week.empty:
+                st.error(f"Không tìm thấy dữ liệu đăng ký trực của '{selected_week}' trong bảng 'luutru'!")
+            else:
+                with st.spinner("Đang tính toán xoay tua quân số và ghi vào Google Sheets..."):
+                    df_new_week = generate_balanced_week_schedule(selected_week, df_curr_week)
+                    df_remain = df_history[df_history['Tuan'].astype(str) != str(selected_week)]
+                    df_save_all = pd.concat([df_remain, df_new_week], ignore_index=True)
+                    conn.update(worksheet="NhiemVu", data=df_save_all)
+                    st.session_state["df_history"] = df_save_all
+                    st.cache_data.clear()
+                    st.success(f"✅ Đã bố trí thành công {len(df_new_week)} nhiệm vụ cho cả tuần {selected_week}!")
+                    st.rerun()
 
         st.divider()
 
-        # 2. KHU VỰC ĐIỀU CHỈNH CHI TIẾT TỪNG NGÀY
-        st.markdown(f"### 🛠️ Điều chỉnh chi tiết theo ngày: **{selected_day_label}**")
+        # Dữ liệu ngày hiện tại để phục vụ AI và form
         current_saved = df_history[(df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day)]
         day_summary = current_saved.groupby("HoTen")["Diem"].sum().reset_index() if not current_saved.empty else pd.DataFrame(columns=["HoTen", "Diem"])
 
-        def get_pool(target_names):
+        def get_pool(target_names, is_dx=False):
             names_nam = [n for n in target_names if n not in LIST_NU]
             df_p = pd.DataFrame({"HoTen": names_nam}).merge(day_summary, on="HoTen", how="left").fillna(0)
-            df_p["Display"] = df_p.apply(lambda r: f"{r['HoTen']} (Ấp: {dict_ap.get(r['HoTen'], '—')}) - {int(r['Diem'])} ca", axis=1)
+            def set_prio(name):
+                if name in night_cax_list: return 1
+                if name in night_ap_list: return 2
+                return 3
+            df_p['Prio'] = df_p['HoTen'].apply(set_prio)
+            df_p['StName'] = df_p['HoTen'].apply(lambda n: "Trực Xã" if n in night_cax_list else (f"Trực {dict_ap.get(n)}" if n in night_ap_list else "Trực Sáng"))
+            if is_dx:
+                df_p = df_p.sort_values(['Prio', 'Diem'], ascending=[True, True])
+            else:
+                df_p = df_p.sort_values(['Diem', 'Prio'], ascending=[True, True])
+            df_p["Display"] = df_p.apply(lambda r: f"{r['HoTen']} ({r['StName']}) - Đã làm: {int(r['Diem'])} ca", axis=1)
             return df_p
 
         pool_s = get_pool(morning_list)
         pool_d = get_pool(night_cax_list)
+        pool_dx = get_pool(list(set(morning_list + night_cax_list + night_ap_list)), is_dx=True)
 
-        # Form tinh chỉnh
+        # 2. KHUNG TRỢ LÝ AI TRA CỨU & ĐIỀU ĐỘNG ĐỘT XUẤT
+        st.markdown(f"### 🤖 TRỢ LÝ ĐIỀU HÀNH & KIỂM TRA QUÂN SỐ TRONG NGÀY ({selected_day})")
+        st.caption("Chỉ huy có thể hỏi trực tiếp AI xem hôm nay ai đã làm gì, ai đang rảnh hoặc nhờ AI gợi ý đồng chí thích hợp để canh giữ đối tượng đột xuất.")
+
+        # Lập danh sách công việc thực tế của từng người trong ngày để cấp context cho AI
+        current_tasks_summary = []
+        if not current_saved.empty:
+            for hoten, grp in current_saved.groupby("HoTen"):
+                nv_list = grp.apply(lambda r: f"{r['LoaiNhiemVu']} ({r['Gio']})", axis=1).tolist()
+                current_tasks_summary.append(f"- {hoten}: {', '.join(nv_list)} [Tổng: {len(nv_list)} ca]")
+        tasks_context_str = "\n".join(current_tasks_summary) if current_tasks_summary else "Chưa có nhiệm vụ nào được phân công trong ngày này."
+
+        if "manage_chat" not in st.session_state:
+            st.session_state.manage_chat = [
+                {"role": "assistant", "content": f"Chào chỉ huy, tôi đã nắm được toàn bộ nhiệm vụ của ngày **{selected_day_label}**. Chỉ huy cần kiểm tra quân số hoặc phân thêm ca **giữ đối tượng đột xuất** cứ nhắn cho tôi."}
+            ]
+
+        col_q1, col_q2 = st.columns(2)
+        quick_query = None
+        with col_q1:
+            if st.button("🔍 Hôm nay ai đã làm những gì rồi?", use_container_width=True):
+                quick_query = "Hãy liệt kê ngắn gọn, rõ ràng danh sách tất cả đồng chí đã được giao nhiệm vụ hôm nay và công việc cụ thể của từng người."
+        with col_q2:
+            if st.button("⚖️ Ai rảnh nhất để phân giữ đối tượng đột xuất?", use_container_width=True):
+                quick_query = "Trong ngày hôm nay, ai hiện chưa có nhiệm vụ hoặc đang có ít ca nhất để tôi phân công canh giữ đối tượng đột xuất? Ưu tiên người trực Xã hoặc trực Sáng chưa bị quá tải."
+
+        chat_container = st.container(height=260)
+        with chat_container:
+            for msg in st.session_state.manage_chat:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+
+        user_chat_input = st.chat_input("Nhập câu hỏi điều hành (VD: Cần 2 người giữ đối tượng lúc 14h-18h, gợi ý cho tôi ai hợp lý nhất...)")
+        active_ai_prompt = quick_query if quick_query else user_chat_input
+
+        if active_ai_prompt:
+            st.session_state.manage_chat.append({"role": "user", "content": active_ai_prompt})
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(active_ai_prompt)
+                with st.chat_message("assistant"):
+                    with st.spinner("AI đang tra cứu lịch trực và đề xuất..."):
+                        try:
+                            model = get_working_gemini_model()
+                            ai_sys = f"""
+Bạn là Trợ lý Điều hành ANTTCS Bắc Tân Uyên.
+Ngày đang xem: {selected_day_label} ({actual_date_str}).
+DANH SÁCH NHIỆM VỤ ĐÃ PHÂN CÔNG HÔM NAY:
+{tasks_context_str}
+
+QUÂN SỐ ĐĂNG KÝ HÔM NAY:
+- Trực Sáng: {morning_list}
+- Trực Đêm Xã: {night_cax_list}
+- Trực Đêm Ấp: {night_ap_list}
+- Nữ miễn trực đêm/đối tượng phức tạp: {LIST_NU}
+
+YÊU CẦU CỦA CHỈ HUY: "{active_ai_prompt}"
+
+NGUYÊN TẮC TRẢ LỜI:
+1. Trả lời thẳng thắn, rõ ràng, gạch đầu dòng ngắn gọn theo đúng tác phong công an.
+2. Nếu chỉ huy cần bố trí "giữ đối tượng đột xuất": ưu tiên chọn những đồng chí chưa có ca hoặc ít ca nhất, tránh trùng khung giờ các ca đã giao.
+"""
+                            resp = model.generate_content(ai_sys)
+                            st.markdown(resp.text)
+                            st.session_state.manage_chat.append({"role": "assistant", "content": resp.text})
+                        except Exception as e:
+                            st.error(f"Lỗi AI: {e}")
+
+        st.divider()
+
+        # 3. FORM TINH CHỈNH CHI TIẾT TỪNG NGÀY & ĐỘT XUẤT
+        st.markdown(f"### 🛠️ Điều chỉnh chi tiết theo ngày: **{selected_day_label}**")
+
+        # Gác cổng
+        st.markdown("#### 🛡️ 1. GÁC CỔNG TRỤ SỞ")
         c_gac1, c_gac2 = st.columns(2)
+        g_day_res, g_night_res = [], []
         with c_gac1:
-            st.markdown("##### 🛡️ Gác cổng ban ngày (Ưu tiên trực Sáng)")
-            g_day_res = []
+            st.caption("Gác cổng ban ngày (Ưu tiên Trực Sáng)")
             for i in range(min(4, len(list_gio))):
                 gio = list_gio[i]
                 saved = current_saved[(current_saved['Gio'] == gio) & (current_saved['LoaiNhiemVu'] == 'Gác cổng')]
@@ -367,8 +449,7 @@ with tab_manage:
                     g_day_res.append({"HoTen": sel_m, "LoaiNhiemVu": "Gác cổng", "Gio": gio, "Diem": 1})
 
         with c_gac2:
-            st.markdown("##### 🛡️ Gác cổng ban đêm (Ưu tiên trực Đêm Xã)")
-            g_night_res = []
+            st.caption("Gác cổng ban đêm (Ưu tiên Trực Đêm Xã)")
             for i in range(4, len(list_gio)):
                 gio = list_gio[i]
                 saved = current_saved[(current_saved['Gio'] == gio) & (current_saved['LoaiNhiemVu'] == 'Gác cổng')]
@@ -380,7 +461,7 @@ with tab_manage:
                     g_night_res.append({"HoTen": sel_n, "LoaiNhiemVu": "Gác cổng", "Gio": gio, "Diem": 1})
 
         # Chốt & trường
-        st.markdown("##### 🏫 Gác chốt cao điểm & Trường học")
+        st.markdown("#### 🏫 2. GÁC CHỐT CAO ĐIỂM & ĐIỀU TIẾT TRƯỜNG HỌC")
         col_c1, col_c2 = st.columns(2)
         cp_res = []
         with col_c1:
@@ -405,7 +486,7 @@ with tab_manage:
                         cp_res.append({"HoTen": sel, "LoaiNhiemVu": f"Gác trường: {tr}", "Gio": "06-08h & 16-18h", "Diem": 1})
 
         # Tuần tra
-        st.markdown("##### 🚔 Tuần tra kiểm soát & Tuần tra đêm")
+        st.markdown("#### 🚔 3. TUẦN TRA ĐÊM & TTKS BAN NGÀY")
         col_tt1, col_tt2, col_tt3 = st.columns(3)
         with col_tt1:
             saved_ttks = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra TTKS ban ngày']['HoTen'].tolist()
@@ -417,13 +498,61 @@ with tab_manage:
             saved_c2 = current_saved[current_saved['LoaiNhiemVu'] == 'Tuần tra C2']['HoTen'].tolist()
             tt2 = st.multiselect("Tuần tra C2 (22-02h - 4 người):", pool_d["Display"], default=[d for d in pool_d["Display"] if d.split(" (")[0] in saved_c2], key=f"ms_c2_{selected_day}")
 
-        st.write("")
-        if st.button("💾 LƯU THAY ĐỔI RIÊNG CHO NGÀY NÀY", use_container_width=True):
-            with st.spinner("Đang cập nhật ngày vào hệ thống..."):
+        # 4. NHIỆM VỤ ĐỘT XUẤT (KHÔI PHỤC NGUYÊN BẢN ĐẦY ĐỦ)
+        st.markdown("#### 🆘 4. NHIỆM VỤ ĐỘT XUẤT (Canh giữ đối tượng, Bảo vệ hiện trường, Áp giải...)")
+        saved_dx = current_saved[current_saved['LoaiNhiemVu'].str.startswith('ĐX: ', na=False)]
+        if not saved_dx.empty:
+            unique_tasks = saved_dx.groupby('LoaiNhiemVu').agg({'Diem': 'first'}).reset_index()
+            unique_tasks['TenViec'] = unique_tasks['LoaiNhiemVu'].str.replace('ĐX: ', '', regex=False)
+            default_n_dx = len(unique_tasks)
+        else:
+            unique_tasks = pd.DataFrame(columns=['LoaiNhiemVu', 'Diem', 'TenViec'])
+            default_n_dx = 1
+
+        if 'n_dx' not in st.session_state:
+            st.session_state.n_dx = default_n_dx
+
+        c_btn1, c_btn2, _ = st.columns([2, 2, 8])
+        with c_btn1:
+            if st.button("➕ Thêm việc đột xuất", use_container_width=True):
+                st.session_state.n_dx += 1
+                st.rerun()
+        with c_btn2:
+            if st.button("➖ Bớt việc", use_container_width=True) and st.session_state.n_dx > 1:
+                st.session_state.n_dx -= 1
+                st.rerun()
+
+        dx_res = []
+        for i in range(st.session_state.n_dx):
+            val_name, val_points, val_selected_mem = "", 1, []
+            if i < len(unique_tasks):
+                row_task = unique_tasks.iloc[i]
+                val_name = row_task['TenViec']
+                val_points = int(row_task['Diem'])
+                saved_members = saved_dx[saved_dx['LoaiNhiemVu'] == row_task['LoaiNhiemVu']]['HoTen'].tolist()
+                val_selected_mem = [d for d in pool_dx["Display"] if d.split(" (")[0] in saved_members]
+
+            cx1, cx2, cx3 = st.columns([3, 5, 1])
+            with cx1:
+                t_n = st.text_input(f"Tên việc {i+1}", value=val_name if val_name else ("Giữ đối tượng đột xuất" if i == 0 and not val_name else ""), placeholder="VD: Giữ đối tượng ca 14h-18h", key=f"dxn_{i}_{selected_day}")
+            with cx2:
+                t_m = st.multiselect(f"Phân công quân số cho việc {i+1}", pool_dx["Display"], default=val_selected_mem, key=f"dxm_{i}_{selected_day}")
+            with cx3:
+                t_d = st.number_input(f"Điểm", 1, 10, value=val_points, key=f"dxd_{i}_{selected_day}")
+
+            if t_n and t_m:
+                for m in t_m:
+                    dx_res.append({"HoTen": m.split(" (")[0], "LoaiNhiemVu": f"ĐX: {t_n}", "Gio": "Đột xuất", "Diem": t_d})
+
+        # NÚT LƯU PHƯƠNG ÁN TO, NỔI BẬT
+        st.markdown('<div class="custom-save-btn">', unsafe_allow_html=True)
+        if st.button(f"💾 LƯU PHƯƠNG ÁN NGÀY {selected_day_label.upper()} VÀO HỆ THỐNG", use_container_width=True, type="primary"):
+            with st.spinner("Đang lưu toàn bộ phương án ngày vào Google Sheets..."):
                 day_manual = g_day_res + g_night_res + cp_res + \
                     [{"HoTen": p.split(" (")[0], "LoaiNhiemVu": "Tuần tra TTKS ban ngày", "Gio": "3 ca ngày", "Diem": 1} for p in ttks] + \
                     [{"HoTen": p.split(" (")[0], "LoaiNhiemVu": "Tuần tra C1", "Gio": "18-22h", "Diem": 1} for p in tt1] + \
-                    [{"HoTen": p.split(" (")[0], "LoaiNhiemVu": "Tuần tra C2", "Gio": "22-02h", "Diem": 1} for p in tt2]
+                    [{"HoTen": p.split(" (")[0], "LoaiNhiemVu": "Tuần tra C2", "Gio": "22-02h", "Diem": 1} for p in tt2] + \
+                    dx_res
 
                 df_m = pd.DataFrame(day_manual)
                 df_m["Tuan"] = selected_week
@@ -431,7 +560,6 @@ with tab_manage:
                 df_m["NgayTao"] = datetime.now().strftime("%d/%m/%Y %H:%M")
                 df_m["NgayThucTe"] = actual_date_str
 
-                # Cập nhật riêng ngày được chỉnh
                 df_final_save = pd.concat([
                     df_history[~((df_history['Tuan'].astype(str) == str(selected_week)) & (df_history['Ngay'] == selected_day))],
                     df_m
@@ -440,8 +568,9 @@ with tab_manage:
                 conn.update(worksheet="NhiemVu", data=df_final_save)
                 st.session_state["df_history"] = df_final_save
                 st.cache_data.clear()
-                st.success(f"✅ Đã cập nhật xong dữ liệu cho {selected_day_label}!")
+                st.success(f"✅ ĐÃ LƯU THÀNH CÔNG TOÀN BỘ NHIỆM VỤ CHO {selected_day_label.upper()}!")
                 st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
 # TAB 3: ĐIỂM DANH (GIỮ NGUYÊN)
